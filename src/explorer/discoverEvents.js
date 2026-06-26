@@ -1,5 +1,6 @@
 const posthog = require("../services/posthog.service");
 const queries = require("../queries/discoverEvents.queries");
+const logger = require("../utils/logger");
 
 (async () => {
     try {
@@ -7,10 +8,10 @@ const queries = require("../queries/discoverEvents.queries");
             queries.latestPageview
         );
 
-        console.log(
+        logger.info(
             JSON.stringify(result, null, 2)
         );
     } catch (err) {
-        console.error(err);
+        logger.error(err.message);
     }
 })();
