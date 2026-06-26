@@ -1,18 +1,25 @@
-require("dotenv").config();
-
 const axios = require("axios");
+const config = require("../config");
+const logger = require("../utils/logger");
 
 class PostHogService {
-    constructor() {
+    constructor(posthogConfig = config.posthog) {
+        this.config = posthogConfig;
         this.client = axios.create({
-            baseURL: `https://us.posthog.com/api/projects/${process.env.POSTHOG_PROJECT_ID}`,
+            baseURL: `${this.config.host}/api/projects/${this.config.projectId}`,
             headers: {
-                Authorization: `Bearer ${process.env.POSTHOG_API_KEY}`,
+                Authorization: `Bearer ${this.config.apiKey}`,
                 "Content-Type": "application/json",
             },
         });
     }
 
+    /**
+     * Execute a HogQL query against the configured PostHog project.
+     *
+     * @param {string} query HogQL query text.
+     * @returns {Promise<object>} PostHog query response.
+     */
     async runHogQL(query) {
         try {
             const response = await this.client.post("/query", {
@@ -24,13 +31,14 @@ class PostHogService {
 
             return response.data;
         } catch (error) {
-            console.error(
-                "PostHog Query Failed:",
+            logger.error(
+                "PostHog query failed",
                 error.response?.data || error.message
             );
-            throw error;
+            throw new Error("PostHog query failed");
         }
     }
 }
 
 module.exports = new PostHogService();
+module.exports.PostHogService = PostHogService;

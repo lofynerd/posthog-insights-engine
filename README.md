@@ -85,9 +85,42 @@ AI
 
 ## Project Structure
 
-See:
+Production code is organized by responsibility:
 
-docs/ARCHITECTURE.md
+* `src/config` - centralized application configuration
+* `src/services` - external API communication
+* `src/queries` - reusable HogQL queries
+* `src/metrics` - business analytics logic
+* `src/explorer` - development-only PostHog discovery utilities
+* `src/storage` - historical snapshot persistence
+* `src/comparison` - historical trend calculation
+* `src/ai` - prompt generation and AI reports
+* `src/notifications` - report delivery channels
+* `src/scheduler` - scheduled report execution
+* `src/utils` - shared helpers
+* `tests` - Jest test suites
+
+See `docs/ARCHITECTURE.md` for the full architecture.
+
+---
+
+## Setup
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Copy `.env.example` to `.env` and fill in the required credentials.
+
+3. Run tests:
+
+```bash
+npm test
+```
+
+Explorer scripts in `src/explorer` are for development and schema discovery only. They are not imported by production modules.
 
 ---
 
@@ -99,7 +132,7 @@ v0.1.0
 
 Current Phase
 
-Architecture & Foundation
+Foundation cleanup complete; analytics engine implementation begins next.
 
 ---
 
