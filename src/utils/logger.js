@@ -1,4 +1,5 @@
 const config = require("../config");
+const { redact, redactString } = require("./redact");
 
 const levels = {
     error: 0,
@@ -14,12 +15,19 @@ function shouldLog(level) {
     return levels[level] <= configuredValue;
 }
 
+/**
+ * Every log line passes through redaction before it reaches stdout/stderr.
+ * This is the single choke point that keeps API keys and tokens out of
+ * CloudWatch, terminals, and any log aggregator.
+ */
 function write(level, message, metadata) {
     if (!shouldLog(level)) {
         return;
     }
 
-    const payload = metadata ? [message, metadata] : [message];
+    const safeMessage = redactString(message);
+    const safeMetadata = metadata !== undefined ? redact(metadata) : undefined;
+    const payload = safeMetadata !== undefined ? [safeMessage, safeMetadata] : [safeMessage];
 
     if (level === "error") {
         console.error(...payload);

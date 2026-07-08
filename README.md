@@ -40,10 +40,38 @@ Instead of manually reviewing dashboards, the platform automatically:
 * PR Reports
 * Developer Reports
 
-### Notifications
+### Multi-Group Telegram Bot
 
-* Slack
-* Telegram
+The bot (`src/bot.js`) can be added to multiple Telegram groups at once, each
+registered as one of 4 report types:
+
+* 👑 Founder / CEO
+* 📈 Marketing
+* 📢 PR
+* 💻 Developer
+
+Each group gets its own AI-generated report tailored to that audience, backed
+by S3-stored snapshots ("memory") so repeated requests on the same day reuse
+already-fetched PostHog data instead of re-querying.
+
+Commands available in every registered group:
+
+* `/register <type> [name]` — one-time setup, assigns a report type to the group
+* `/test` — sanity-checks PostHog, AI, and Telegram connectivity, lists available commands
+* `/latest` — today's snapshot
+* `/weekly` — last 7 days
+* `/monthly` — last 30 days
+* `/quarterly` — last 90 days
+* `/ask <question>` — free-form Q&A, restricted to the brand's own analytics
+  (a relevance guard blocks off-topic questions before they reach the AI, to
+  protect API credits from misuse)
+
+Weekly and monthly reports are also posted automatically via a scheduler
+(`src/scheduler/scheduledReports.js`).
+
+### Other Notifications
+
+* Slack (planned)
 
 Future
 

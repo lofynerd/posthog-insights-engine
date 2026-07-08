@@ -1,0 +1,58 @@
+{
+    "family": "tomasi-analytics-bot",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "256",
+    "memory": "512",
+    "executionRoleArn": "arn:aws:iam::167611893897:role/ecsTaskExecutionRole",
+    "taskRoleArn": "arn:aws:iam::167611893897:role/tomasi-analytics-bot-task-role",
+    "containerDefinitions": [
+        {
+            "name": "analytics-bot",
+            "image": "167611893897.dkr.ecr.us-east-1.amazonaws.com/tomasidesign/analytics-bot:v3",
+            "essential": true,
+            "readonlyRootFilesystem": false,
+            "environment": [
+                { "name": "NODE_ENV", "value": "production" },
+                { "name": "LOG_LEVEL", "value": "info" },
+                { "name": "POSTHOG_PROJECT_ID", "value": "368729" },
+                { "name": "POSTHOG_HOST", "value": "https://us.posthog.com" },
+                { "name": "AI_BASE_URL", "value": "https://generativelanguage.googleapis.com/v1beta/openai" },
+                { "name": "AI_MODEL", "value": "gemini-2.5-flash" },
+                { "name": "AWS_REGION", "value": "us-east-1" },
+                { "name": "AWS_BUCKET_NAME", "value": "tomasi-vercel-images" },
+                { "name": "AWS_S3_KEY_PREFIX", "value": "posthog-insights-engine" },
+                { "name": "BRAND_NAME", "value": "Tomasi" }
+            ],
+            "secrets": [
+                {
+                    "name": "POSTHOG_API_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:167611893897:secret:posthog-insights-engine/POSTHOG_API_KEY-Jo80Rc"
+                },
+                {
+                    "name": "AI_API_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:167611893897:secret:posthog-insights-engine/AI_API_KEY-lsYkzZ"
+                },
+                {
+                    "name": "TELEGRAM_BOT_TOKEN",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:167611893897:secret:posthog-insights-engine/TELEGRAM_BOT_TOKEN-AQWkBk"
+                }
+            ],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/tomasi-analytics-bot",
+                    "awslogs-region": "us-east-1",
+                    "awslogs-stream-prefix": "bot"
+                }
+            },
+            "healthCheck": {
+                "command": ["CMD-SHELL", "node src/healthcheck.js"],
+                "interval": 30,
+                "timeout": 5,
+                "retries": 3,
+                "startPeriod": 30
+            }
+        }
+    ]
+}

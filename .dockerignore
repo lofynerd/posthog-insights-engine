@@ -1,0 +1,28 @@
+node_modules
+npm-debug.log*
+
+# Never bake secrets into the image. Runtime config comes from ECS
+# task definition secrets (Secrets Manager) / environment, not from a
+# file shipped inside the image.
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+.github
+
+coverage
+tests
+jest.config.js
+
+docs
+*.md
+!README.md
+
+.DS_Store
+.vscode
+.idea
+
+Dockerfile
+.dockerignore
