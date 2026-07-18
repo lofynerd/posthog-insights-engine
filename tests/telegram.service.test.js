@@ -45,12 +45,12 @@ describe("TelegramService", () => {
 
     it("truncates oversized messages instead of sending unbounded content", async () => {
         const { service, post } = buildService();
-        const huge = "x".repeat(30_000);
+        const huge = "x".repeat(50_000);
 
         await service.sendMessage(huge);
 
         const allSentText = post.mock.calls.map((call) => call[1].text).join("");
-        expect(allSentText.length).toBeLessThan(30_000);
+        expect(allSentText.length).toBeLessThan(50_000);
         expect(allSentText).toContain("[truncated: report exceeded size limit]");
     });
 

@@ -1,13 +1,17 @@
 const axios = require("axios");
 const config = require("../config");
 const logger = require("../utils/logger");
+const { splitForTelegram, sanitizeMarkdown } = require("../utils/telegramFormat");
 
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024; // 2 MB
 // Hard ceiling on total message size to send in one call, independent
 // of chunking, so a runaway AI response can't trigger an unbounded
-// number of outbound requests (spam / cost / rate-limit risk).
-const MAX_TOTAL_MESSAGE_LENGTH = 20_000;
+// number of outbound requests (spam / cost / rate-limit risk). The
+// full 10-section executive report can legitimately run to ~10-15KB,
+// so this is set well above that with headroom rather than tuned to
+// the current report size.
+const MAX_TOTAL_MESSAGE_LENGTH = 40_000;
 const CHAT_ID_PATTERN = /^-?\d+$/;
 
 /**
@@ -63,8 +67,7 @@ class TelegramService {
                 ? `${message.slice(0, MAX_TOTAL_MESSAGE_LENGTH)}\n\n[truncated: report exceeded size limit]`
                 : message;
 
-        // Telegram has a 4096 character limit per message.
-        const chunks = this._splitMessage(bounded, 4000);
+        const chunks = splitForTelegram(bounded);
 
         const results = [];
         for (const chunk of chunks) {
@@ -82,7 +85,7 @@ class TelegramService {
      * @private
      */
     async _send(text, chatId) {
-        const sanitized = this._sanitizeMarkdown(text);
+        const sanitized = sanitizeMarkdown(text);
 
         try {
             const response = await this.client.post("/sendMessage", {
@@ -124,51 +127,6 @@ class TelegramService {
             );
             throw new Error("Telegram message delivery failed");
         }
-    }
-
-    /**
-     * Normalize common Markdown issues that break Telegram's legacy
-     * Markdown parser (unbalanced or nested entities).
-     * @private
-     */
-    _sanitizeMarkdown(text) {
-        return text
-            .replace(/\*\*(.+?)\*\*/g, "*$1*") // ** bold ** -> * bold *
-            .replace(/^#{1,6}\s+/gm, "") // strip markdown headers
-            .replace(/^[ \t]*[-*]\s+/gm, "• "); // normalize list markers
-    }
-
-    /**
-     * Split a long message into chunks at newline boundaries.
-     * @private
-     */
-    _splitMessage(message, maxLength) {
-        if (message.length <= maxLength) {
-            return [message];
-        }
-
-        const chunks = [];
-        let remaining = message;
-
-        while (remaining.length > 0) {
-            if (remaining.length <= maxLength) {
-                chunks.push(remaining);
-                break;
-            }
-
-            let splitIndex = remaining.lastIndexOf("\n", maxLength);
-            if (splitIndex === -1 || splitIndex < maxLength * 0.5) {
-                splitIndex = remaining.lastIndexOf(" ", maxLength);
-            }
-            if (splitIndex === -1) {
-                splitIndex = maxLength;
-            }
-
-            chunks.push(remaining.slice(0, splitIndex));
-            remaining = remaining.slice(splitIndex).trimStart();
-        }
-
-        return chunks;
     }
 }
 

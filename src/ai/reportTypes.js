@@ -1,89 +1,105 @@
 /**
  * Report type definitions.
  *
- * Single source of truth for the 4 audience-specific reports. Keeping
- * this as plain data (not scattered across prompt strings) means the
- * Telegram bot, the AI service, and the group registry can all agree
- * on the same set of valid report types.
+ * Canonical audiences: board, marketing, pr, development.
+ *
+ * "board" replaces the old "founder" report, and "development"
+ * replaces the old "developer" report — renamed to match the new
+ * Tomasi AI persona spec. REPORT_TYPE_ALIASES keeps old group
+ * registrations (stored as "founder"/"developer" in S3 before this
+ * change) resolving correctly without forcing every group to re-run
+ * /register.
  */
 const REPORT_TYPES = {
-    founder: {
-        key: "founder",
-        title: "👑 Founder / CEO Report",
-        goal: "Help make business decisions quickly.",
-        focusAreas: [
-            "Overall business health score",
-            "Visitor growth",
-            "Conversion rate",
-            "Top acquisition channels",
-            "Revenue indicators (when available)",
-            "Best-performing landing pages",
-            "Biggest opportunities",
-            "Biggest risks",
-            "AI executive summary",
-            "Top 3 recommended actions",
-            "Confidence score",
-        ],
-        targetReadSeconds: 60,
+    board: {
+        key: "board",
+        title: "🏛️ Board Report",
+        emoji: "🏛️",
+        goal: "Revenue, growth, business health, major risks/opportunities, financial impact, strategic recommendations. No technical implementation detail.",
+        focus: ["Revenue", "Growth", "Business Health", "Major Risks", "Major Opportunities", "Financial Impact", "Strategic Recommendations"],
+        exclude: ["infrastructure", "AWS", "technical implementation detail"],
     },
     marketing: {
         key: "marketing",
         title: "📈 Marketing Report",
-        goal: "Improve traffic and campaign performance.",
-        focusAreas: [
-            "Traffic sources (Google, Instagram, Direct, etc.)",
-            "Campaign performance",
-            "Landing page performance",
-            "SEO growth",
-            "Organic vs Social traffic",
-            "Device breakdown",
-            "Browser breakdown",
-            "Conversion by traffic source",
-            "User engagement",
-            "Marketing recommendations",
-            "Confidence score",
-        ],
+        emoji: "📈",
+        goal: "Traffic, campaigns, SEO, social, funnels, content, acquisition. No infrastructure.",
+        focus: ["Traffic", "Campaigns", "SEO", "Social", "Funnels", "Content", "Acquisition"],
+        exclude: ["infrastructure"],
     },
     pr: {
         key: "pr",
         title: "📢 PR Report",
-        goal: "Understand audience growth and identify content opportunities.",
-        focusAreas: [
-            "Audience growth trends",
-            "Geographic expansion",
-            "Top-performing content",
-            "Referral sources",
-            "Brand visibility trends",
-            "Emerging markets",
-            "Viral content detection",
-            "Customer interests",
-            "Suggested PR/content opportunities",
-            "Confidence score",
-        ],
+        emoji: "📢",
+        goal: "Brand visibility, audience growth, media reach, engagement, referral sources, sentiment, brand awareness, content performance. No AWS or infrastructure.",
+        focus: ["Brand Visibility", "Audience Growth", "Media Reach", "Engagement", "Referral Sources", "Sentiment", "Brand Awareness", "Content Performance"],
+        exclude: ["AWS", "infrastructure"],
     },
-    developer: {
-        key: "developer",
-        title: "💻 Developer Report",
-        goal: "Monitor technical quality and user experience.",
-        focusAreas: [
-            "Browser usage",
-            "Device usage",
-            "Operating systems",
-            "Screen sizes",
-            "Performance metrics (if available)",
-            "Errors (future)",
-            "Page load trends",
-            "User flow anomalies",
-            "Technical recommendations",
-            "Confidence score",
-        ],
+    development: {
+        key: "development",
+        title: "💻 Development Report",
+        emoji: "💻",
+        goal: "Infrastructure, API, errors, deployments, cloud, performance, security, CloudWatch, database, latency, costs. Never discuss marketing.",
+        focus: ["Infrastructure", "API", "Errors", "Deployments", "Cloud", "Performance", "Security", "CloudWatch", "Database", "Latency", "Costs"],
+        exclude: ["marketing"],
     },
+};
+
+// Old names -> canonical names. Anything reading a report type
+// (bot commands, group registry lookups, prompt building) should
+// resolve through normalizeReportType() before use.
+const REPORT_TYPE_ALIASES = {
+    founder: "board",
+    developer: "development",
 };
 
 const VALID_REPORT_TYPES = Object.freeze(Object.keys(REPORT_TYPES));
 
-function isValidReportType(value) {
-    return VALID_REPORT_TYPES.includes(value);
+/**
+ * Resolve a possibly-legacy report type name to its canonical form.
+ * Returns null if the value isn't a known type or alias.
+ */
+function normalizeReportType(value) {
+    if (typeof value !== "string") return null;
+    const lower = value.toLowerCase();
+    if (REPORT_TYPES[lower]) return lower;
+    if (REPORT_TYPE_ALIASES[lower]) return REPORT_TYPE_ALIASES[lower];
+    return null;
 }
 
-module.exports = { REPORT_TYPES, VALID_REPORT_TYPES, isValidReportType };
+function isValidReportType(value) {
+    return normalizeReportType(value) !== null;
+}
+
+/**
+ * Word budget per report, per the Tomasi AI philosophy: reports must
+ * be scannable in ~30 seconds, not read like documents.
+ *
+ * Board reports always use the board cap regardless of period.
+ * Every other audience is capped by how far back the period looks —
+ * a daily snapshot has less to say than a monthly one.
+ */
+const PERIOD_WORD_LIMITS = {
+    latest: 350, // "daily" in the spec
+    weekly: 500,
+    monthly: 700,
+    quarterly: 700, // not specified in the spec; treated as monthly-equivalent
+};
+const BOARD_WORD_LIMIT = 600;
+
+function wordLimitFor(reportType, periodType) {
+    const canonical = normalizeReportType(reportType);
+    if (canonical === "board") return BOARD_WORD_LIMIT;
+    return PERIOD_WORD_LIMITS[periodType] ?? PERIOD_WORD_LIMITS.weekly;
+}
+
+module.exports = {
+    REPORT_TYPES,
+    REPORT_TYPE_ALIASES,
+    VALID_REPORT_TYPES,
+    PERIOD_WORD_LIMITS,
+    BOARD_WORD_LIMIT,
+    normalizeReportType,
+    isValidReportType,
+    wordLimitFor,
+};

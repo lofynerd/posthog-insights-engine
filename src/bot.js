@@ -45,6 +45,7 @@ function main() {
     const shutdown = (signal) => {
         logger.info(`Received ${signal}, shutting down...`);
         clearInterval(heartbeat);
+        clearInterval(bot._rateLimiterSweepInterval);
         scheduledTasks.forEach((task) => task.stop());
         bot.stop(signal);
         process.exit(0);

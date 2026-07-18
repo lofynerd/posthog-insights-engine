@@ -38,7 +38,7 @@ describe("PostHogService", () => {
                 Authorization: "Bearer test-api-key",
                 "Content-Type": "application/json",
             },
-            timeout: 15000,
+            timeout: 25000,
             maxContentLength: 5 * 1024 * 1024,
             maxBodyLength: 5 * 1024 * 1024,
             maxRedirects: 0,

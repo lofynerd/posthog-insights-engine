@@ -9,7 +9,7 @@
     "containerDefinitions": [
         {
             "name": "analytics-bot",
-            "image": "167611893897.dkr.ecr.us-east-1.amazonaws.com/tomasidesign/analytics-bot:v3",
+            "image": "167611893897.dkr.ecr.us-east-1.amazonaws.com/tomasidesign/analytics-bot:v6",
             "essential": true,
             "readonlyRootFilesystem": false,
             "environment": [

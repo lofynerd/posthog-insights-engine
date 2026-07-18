@@ -102,6 +102,71 @@ describe("AnalysisService", () => {
             expect(sentPrompt).toContain('"score": 42');
             expect(sentPrompt).toContain('"confidenceScore": 77');
         });
+
+        it("accepts legacy aliases (founder -> board, developer -> development)", async () => {
+            const post = jest.fn().mockResolvedValue({
+                data: { choices: [{ message: { content: "ok" } }] },
+            });
+            const service = buildService(post);
+
+            await service.generateReport("developer", { metrics: {} });
+
+            const systemPrompt = post.mock.calls[0][1].messages[0].content;
+            expect(systemPrompt).toContain("Development Report");
+        });
+
+        it("applies a stricter word budget for shorter periods", async () => {
+            const post = jest.fn().mockResolvedValue({
+                data: { choices: [{ message: { content: "ok" } }] },
+            });
+            const service = buildService(post);
+
+            await service.generateReport("marketing", { metrics: {}, periodType: "latest" });
+
+            const systemPrompt = post.mock.calls[0][1].messages[0].content;
+            expect(systemPrompt).toContain("350 words");
+        });
+
+        it("uses the fixed board word cap regardless of period", async () => {
+            const post = jest.fn().mockResolvedValue({
+                data: { choices: [{ message: { content: "ok" } }] },
+            });
+            const service = buildService(post);
+
+            await service.generateReport("board", { metrics: {}, periodType: "quarterly" });
+
+            const systemPrompt = post.mock.calls[0][1].messages[0].content;
+            expect(systemPrompt).toContain("600 words");
+        });
+
+        it("allows a larger word budget and higher token limit when expanded", async () => {
+            const post = jest.fn().mockResolvedValue({
+                data: { choices: [{ message: { content: "ok" } }] },
+            });
+            const service = buildService(post);
+
+            await service.generateReport("marketing", { metrics: {}, periodType: "weekly", expanded: true });
+
+            const systemPrompt = post.mock.calls[0][1].messages[0].content;
+            const body = post.mock.calls[0][1];
+            expect(systemPrompt).toContain("Expanded detail mode");
+            expect(body.max_tokens).toBeGreaterThan(1800);
+        });
+
+        it("excludes out-of-scope topics per audience in the prompt", async () => {
+            const post = jest.fn().mockResolvedValue({
+                data: { choices: [{ message: { content: "ok" } }] },
+            });
+            const service = buildService(post);
+
+            await service.generateReport("development", { metrics: {} });
+            const devPrompt = post.mock.calls[0][1].messages[0].content;
+            expect(devPrompt).toContain("marketing");
+
+            await service.generateReport("board", { metrics: {} });
+            const boardPrompt = post.mock.calls[1][1].messages[0].content;
+            expect(boardPrompt.toLowerCase()).toContain("infrastructure");
+        });
     });
 
     describe("rawCompletion / classify", () => {

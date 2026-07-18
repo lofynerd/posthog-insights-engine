@@ -25,19 +25,37 @@ function rows(result) {
  * @returns {Promise<object>} Structured acquisition metrics.
  */
 async function collect(days, offsetDays = 0) {
-    const [visitorsResult, pageviewsResult, channelsResult, utmResult, organicSocialResult, landingPagesResult] =
-        await Promise.all([
-            posthog.runHogQL(queries.uniqueVisitorsForWindow(days, offsetDays)),
-            posthog.runHogQL(queries.pageviewsForWindow(days, offsetDays)),
-            posthog.runHogQL(queries.topAcquisitionChannels(days, 10, offsetDays)),
-            posthog.runHogQL(queries.trafficByUtmSource(days, 10, offsetDays)),
-            posthog.runHogQL(queries.organicVsSocial(days, offsetDays)),
-            posthog.runHogQL(queries.topLandingPages(days, 10, offsetDays)),
-        ]);
+    const [
+        visitorsResult,
+        pageviewsResult,
+        channelsResult,
+        utmResult,
+        organicSocialResult,
+        landingPagesResult,
+        sessionsResult,
+        returningResult,
+    ] = await Promise.all([
+        posthog.runHogQL(queries.uniqueVisitorsForWindow(days, offsetDays)),
+        posthog.runHogQL(queries.pageviewsForWindow(days, offsetDays)),
+        posthog.runHogQL(queries.topAcquisitionChannels(days, 10, offsetDays)),
+        posthog.runHogQL(queries.trafficByUtmSource(days, 10, offsetDays)),
+        posthog.runHogQL(queries.organicVsSocial(days, offsetDays)),
+        posthog.runHogQL(queries.topLandingPages(days, 10, offsetDays)),
+        posthog.runHogQL(queries.sessionsForWindow(days, offsetDays)),
+        posthog.runHogQL(queries.returningVisitors(days, offsetDays)),
+    ]);
+
+    const uniqueVisitors = rows(visitorsResult)[0]?.[0] ?? 0;
+    const sessions = rows(sessionsResult)[0]?.[0] ?? 0;
+    const returning = rows(returningResult)[0]?.[0] ?? 0;
 
     return {
-        uniqueVisitors: rows(visitorsResult)[0]?.[0] ?? 0,
+        uniqueVisitors,
         pageviews: rows(pageviewsResult)[0]?.[0] ?? 0,
+        sessions,
+        returningVisitors: returning,
+        returningVisitorRate:
+            uniqueVisitors > 0 ? Number((returning / uniqueVisitors).toFixed(4)) : null,
         topChannels: rows(channelsResult).map(([source, visits]) => ({ source, visits })),
         topUtmSources: rows(utmResult).map(([source, visits]) => ({ source, visits })),
         organicVsSocial: rows(organicSocialResult).map(([channel, visits]) => ({ channel, visits })),

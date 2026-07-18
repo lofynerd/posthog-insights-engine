@@ -43,25 +43,31 @@ Instead of manually reviewing dashboards, the platform automatically:
 ### Multi-Group Telegram Bot
 
 The bot (`src/bot.js`) can be added to multiple Telegram groups at once, each
-registered as one of 4 report types:
+registered as one of 4 report audiences:
 
-* 👑 Founder / CEO
+* 🏛️ Board (legacy alias: founder)
 * 📈 Marketing
 * 📢 PR
-* 💻 Developer
+* 💻 Development (legacy alias: developer)
 
 Each group gets its own AI-generated report tailored to that audience, backed
 by S3-stored snapshots ("memory") so repeated requests on the same day reuse
 already-fetched PostHog data instead of re-querying.
 
+When the bot is added to a group, or any member joins a group it's already
+in, it automatically posts a short command menu. New/unregistered groups get
+a nudge to run `/register`; already-registered groups get the quick command
+list.
+
 Commands available in every registered group:
 
 * `/register <type> [name]` — one-time setup, assigns a report type to the group
+* `/help` — full walkthrough of every command
 * `/test` — sanity-checks PostHog, AI, and Telegram connectivity, lists available commands
-* `/latest` — today's snapshot
-* `/weekly` — last 7 days
-* `/monthly` — last 30 days
-* `/quarterly` — last 90 days
+* `/latest` — today's snapshot · `/weekly` — 7 days · `/monthly` — 30 days · `/quarterly` — 90 days
+* `/board` `/marketing` `/pr` `/dev` — view any audience's report on demand, regardless of the group's own registered type
+* `/details` — expanded breakdown of the last report generated for this chat
+* `/recommend` — ranked priorities only · `/funnel` — conversion funnel breakdown only
 * `/ask <question>` — free-form Q&A, restricted to the brand's own analytics
   (a relevance guard blocks off-topic questions before they reach the AI, to
   protect API credits from misuse)

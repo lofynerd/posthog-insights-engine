@@ -13,11 +13,13 @@ const logger = require("../utils/logger");
  * commands (/latest, /weekly, /monthly, /quarterly).
  *
  * @param {string} groupName - Sanitized group identifier.
- * @param {string} reportType - Report audience: founder/marketing/pr/developer.
+ * @param {string} reportType - Report audience: board/marketing/pr/development (or legacy founder/developer).
  * @param {string} periodType - One of latest/weekly/monthly/quarterly.
- * @returns {Promise<{reportText: string, healthScore: object, confidenceScore: number, periodLabel: string}>}
+ * @param {object} [options]
+ * @param {boolean} [options.expanded] - Request a longer /details-style report.
+ * @returns {Promise<{reportText: string, healthScore: object, confidenceScore: number, current: object, comparison: object}>}
  */
-async function generateGroupReport(groupName, reportType, periodType) {
+async function generateGroupReport(groupName, reportType, periodType, options = {}) {
     const { current, comparison } = await getOrBuildSnapshot(groupName, periodType);
 
     const healthScore = computeHealthScore(current);
@@ -28,6 +30,8 @@ async function generateGroupReport(groupName, reportType, periodType) {
         comparison,
         healthScore,
         confidenceScore,
+        periodType,
+        expanded: Boolean(options.expanded),
     });
 
     logger.info("Group report generated", { groupName, reportType, periodType });

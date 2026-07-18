@@ -2,28 +2,7 @@ const cron = require("node-cron");
 const groupRegistry = require("../notifications/groupRegistry");
 const { generateGroupReport } = require("../insights/reportGenerator");
 const logger = require("../utils/logger");
-
-const MAX_TELEGRAM_MESSAGE = 4000;
-
-function splitForTelegram(text) {
-    if (text.length <= MAX_TELEGRAM_MESSAGE) return [text];
-    const chunks = [];
-    let remaining = text;
-    while (remaining.length > 0) {
-        if (remaining.length <= MAX_TELEGRAM_MESSAGE) {
-            chunks.push(remaining);
-            break;
-        }
-        let splitIndex = remaining.lastIndexOf("\n", MAX_TELEGRAM_MESSAGE);
-        if (splitIndex === -1 || splitIndex < MAX_TELEGRAM_MESSAGE * 0.5) {
-            splitIndex = remaining.lastIndexOf(" ", MAX_TELEGRAM_MESSAGE);
-        }
-        if (splitIndex === -1) splitIndex = MAX_TELEGRAM_MESSAGE;
-        chunks.push(remaining.slice(0, splitIndex));
-        remaining = remaining.slice(splitIndex).trimStart();
-    }
-    return chunks;
-}
+const { splitForTelegram } = require("../utils/telegramFormat");
 
 /**
  * Send a scheduled report to every registered group for a given

@@ -23,6 +23,9 @@ async function collect(days, offsetDays = 0) {
         vitalsResult,
         rageResult,
         bounceResult,
+        avgDurationResult,
+        exitPagesResult,
+        longestSessionsResult,
     ] = await Promise.all([
         posthog.runHogQL(queries.deviceBreakdown(days, offsetDays)),
         posthog.runHogQL(queries.browserBreakdown(days, 10, offsetDays)),
@@ -32,6 +35,9 @@ async function collect(days, offsetDays = 0) {
         posthog.runHogQL(queries.averageWebVitals(days, offsetDays)),
         posthog.runHogQL(queries.rageClickCount(days, offsetDays)),
         posthog.runHogQL(queries.bounceSignal(days, offsetDays)),
+        posthog.runHogQL(queries.averagePageDuration(days, offsetDays)),
+        posthog.runHogQL(queries.topExitPages(days, 10, offsetDays)),
+        posthog.runHogQL(queries.longestSessions(days, 5, offsetDays)),
     ]);
 
     const vitalsRow = rows(vitalsResult)[0] || [];
@@ -54,6 +60,12 @@ async function collect(days, offsetDays = 0) {
         bounceRate:
             totalSessions > 0 ? Number((singlePageSessions / totalSessions).toFixed(4)) : null,
         totalSessions: totalSessions ?? 0,
+        avgPageDurationSeconds: rows(avgDurationResult)[0]?.[0] ?? null,
+        topExitPages: rows(exitPagesResult).map(([path, exits]) => ({ path, exits })),
+        longestSessions: rows(longestSessionsResult).map(([path, durationSeconds]) => ({
+            path,
+            durationSeconds,
+        })),
     };
 }
 

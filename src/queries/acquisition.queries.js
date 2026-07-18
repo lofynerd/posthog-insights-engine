@@ -90,6 +90,36 @@ ORDER BY visits DESC
 LIMIT ${Number.isInteger(limit) ? limit : 10}
 `;
 
+// Sessions is approximated as distinct $session_id values seen on
+// pageviews, since PostHog's default schema has no first-class
+// "sessions" table available to a HogQL events query here.
+const sessionsForWindow = (days, offsetDays = 0) => `
+SELECT
+    count(DISTINCT properties.$session_id)
+FROM events
+WHERE ${dateRangeClause(days, offsetDays)}
+    AND event = '$pageview'
+    AND properties.$session_id IS NOT NULL
+`;
+
+// Returning visitors: persons seen in the current window who were
+// also seen in the period immediately prior to it (not the same as
+// the comparison "previous period" — this always looks at the days
+// right before the window regardless of offsetDays, since "returning"
+// is a property of the current window's audience).
+const returningVisitors = (days, offsetDays = 0) => `
+SELECT count(DISTINCT person_id)
+FROM events
+WHERE ${dateRangeClause(days, offsetDays)}
+    AND event = '$pageview'
+    AND person_id IN (
+        SELECT DISTINCT person_id
+        FROM events
+        WHERE event = '$pageview'
+            AND timestamp < now() - INTERVAL ${Number.isInteger(offsetDays) ? offsetDays : 0} DAY - INTERVAL ${Number.isInteger(days) ? days : 30} DAY
+    )
+`;
+
 module.exports = {
     uniqueVisitors,
     uniqueVisitorsForWindow,
@@ -98,4 +128,6 @@ module.exports = {
     trafficByUtmSource,
     organicVsSocial,
     topLandingPages,
+    sessionsForWindow,
+    returningVisitors,
 };

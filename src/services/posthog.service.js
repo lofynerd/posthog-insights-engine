@@ -10,7 +10,16 @@ const HOGQL_QUERY_PATTERN = /^[\s\S]{1,10000}$/;
 // Caps prevent a misbehaving/compromised upstream from forcing this
 // process to buffer unbounded response bodies in memory.
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5 MB
-const REQUEST_TIMEOUT_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 25_000;
+
+// The metrics layer fires many HogQL queries concurrently per report
+// (acquisition + conversion + engagement + geography, each running
+// several queries via Promise.all). Without a cap, a single report
+// generation can open 25+ simultaneous connections to PostHog, which
+// in practice causes some queries to time out under load. This
+// limits how many HogQL requests are in flight at once from this
+// process, queueing the rest rather than firing them all at once.
+const MAX_CONCURRENT_QUERIES = 6;
 
 class PostHogService {
     constructor(posthogConfig = config.posthog) {
@@ -38,6 +47,35 @@ class PostHogService {
             // Authorization header to an unintended host.
             maxRedirects: 0,
         });
+
+        this._activeCount = 0;
+        this._queue = [];
+    }
+
+    /**
+     * Acquire a concurrency slot, waiting in FIFO order if the
+     * process already has MAX_CONCURRENT_QUERIES queries in flight.
+     * @private
+     */
+    _acquireSlot() {
+        if (this._activeCount < MAX_CONCURRENT_QUERIES) {
+            this._activeCount += 1;
+            return Promise.resolve();
+        }
+        return new Promise((resolve) => this._queue.push(resolve));
+    }
+
+    /**
+     * Release a concurrency slot and wake the next queued caller, if any.
+     * @private
+     */
+    _releaseSlot() {
+        const next = this._queue.shift();
+        if (next) {
+            next();
+        } else {
+            this._activeCount = Math.max(0, this._activeCount - 1);
+        }
     }
 
     /**
@@ -53,6 +91,7 @@ class PostHogService {
             throw new Error("Invalid HogQL query: must be a non-empty string under 10KB");
         }
 
+        await this._acquireSlot();
         try {
             const response = await this.client.post("/query", {
                 query: {
@@ -72,6 +111,8 @@ class PostHogService {
                 error.response?.data || error.message
             );
             throw new Error("PostHog query failed");
+        } finally {
+            this._releaseSlot();
         }
     }
 }

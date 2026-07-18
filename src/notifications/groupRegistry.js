@@ -99,7 +99,7 @@ class GroupRegistry {
      *
      * @param {string|number} chatId
      * @param {string} groupName - Sanitized display name, used as an S3 path segment.
-     * @param {string} reportType - One of founder/marketing/pr/developer.
+     * @param {string} reportType - board/marketing/pr/development (or legacy founder/developer, normalized by callers before this).
      */
     async registerGroup(chatId, groupName, reportType) {
         if (!/^-?\d+$/.test(String(chatId))) {

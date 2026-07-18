@@ -99,6 +99,50 @@ FROM (
 )
 `;
 
+// $pageleave carries $prev_pageview_duration (seconds spent on the
+// page being left) and $prev_pageview_pathname (the page that was
+// exited from), which together give us average session/page duration
+// and a real exit-page breakdown without needing a separate sessions table.
+//
+// Durations above 30 minutes are excluded: these are almost always a
+// tab left open in the background rather than genuine engaged time,
+// and including them skews the average by orders of magnitude.
+const MAX_REALISTIC_DURATION_SECONDS = 1800;
+
+const averagePageDuration = (days, offsetDays = 0) => `
+SELECT avg(toFloat(properties.$prev_pageview_duration))
+FROM events
+WHERE ${dateRangeClause(days, offsetDays)}
+    AND event = '$pageleave'
+    AND properties.$prev_pageview_duration IS NOT NULL
+    AND toFloat(properties.$prev_pageview_duration) <= ${MAX_REALISTIC_DURATION_SECONDS}
+`;
+
+const topExitPages = (days, limit = 10, offsetDays = 0) => `
+SELECT
+    coalesce(properties.$prev_pageview_pathname, properties.$pathname) AS path,
+    count() AS exits
+FROM events
+WHERE ${dateRangeClause(days, offsetDays)}
+    AND event = '$pageleave'
+GROUP BY path
+ORDER BY exits DESC
+LIMIT ${Number.isInteger(limit) ? limit : 10}
+`;
+
+const longestSessions = (days, limit = 5, offsetDays = 0) => `
+SELECT
+    coalesce(properties.$prev_pageview_pathname, properties.$pathname) AS path,
+    toFloat(properties.$prev_pageview_duration) AS duration_seconds
+FROM events
+WHERE ${dateRangeClause(days, offsetDays)}
+    AND event = '$pageleave'
+    AND properties.$prev_pageview_duration IS NOT NULL
+    AND toFloat(properties.$prev_pageview_duration) <= ${MAX_REALISTIC_DURATION_SECONDS}
+ORDER BY duration_seconds DESC
+LIMIT ${Number.isInteger(limit) ? limit : 5}
+`;
+
 module.exports = {
     deviceBreakdown,
     browserBreakdown,
@@ -108,4 +152,7 @@ module.exports = {
     averageWebVitals,
     rageClickCount,
     bounceSignal,
+    averagePageDuration,
+    topExitPages,
+    longestSessions,
 };
