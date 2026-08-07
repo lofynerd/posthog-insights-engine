@@ -1,186 +1,46 @@
-# PostHog Insights Engine
+# AI-Powered PostHog Analytics Assistant
 
-> AI-powered analytics reporting and insight generation for PostHog.
-
-## Overview
-
-PostHog Insights Engine is a modular analytics platform that transforms raw PostHog analytics into actionable business insights.
-
-Instead of manually reviewing dashboards, the platform automatically:
-
-* Collects analytics from PostHog
-* Organizes metrics into business domains
-* Stores historical snapshots
-* Detects trends and anomalies
-* Generates AI-powered reports
-* Delivers audience-specific summaries
-
----
+Automatically transforms PostHog product analytics into actionable engineering and business insights using AI.
 
 ## Features
 
-### Analytics Engine
+- Automated analytics collection
+- Historical metric comparison
+- AI-generated summaries
+- Dashboard reporting
+- Scheduled insights
+- Notification workflows
 
-* Acquisition Metrics
-* Engagement Metrics
-* Geography Metrics
-* Conversion Metrics
+## Stack
 
-### Historical Analytics
+- Node.js
+- PostHog
+- REST APIs
+- AI
+- Automation
 
-* Daily Snapshots
-* Weekly Comparisons
-* Monthly Comparisons
-* Trend Detection
-
-### AI Reporting
-
-* Founder Reports
-* Marketing Reports
-* PR Reports
-* Developer Reports
-
-### Multi-Group Telegram Bot
-
-The bot (`src/bot.js`) can be added to multiple Telegram groups at once, each
-registered as one of 4 report audiences:
-
-* 🏛️ Board (legacy alias: founder)
-* 📈 Marketing
-* 📢 PR
-* 💻 Development (legacy alias: developer)
-
-Each group gets its own AI-generated report tailored to that audience, backed
-by S3-stored snapshots ("memory") so repeated requests on the same day reuse
-already-fetched PostHog data instead of re-querying.
-
-When the bot is added to a group, or any member joins a group it's already
-in, it automatically posts a short command menu. New/unregistered groups get
-a nudge to run `/register`; already-registered groups get the quick command
-list.
-
-Commands available in every registered group:
-
-* `/register <type> [name]` — one-time setup, assigns a report type to the group
-* `/help` — full walkthrough of every command
-* `/test` — sanity-checks PostHog, AI, and Telegram connectivity, lists available commands
-* `/latest` — today's snapshot · `/weekly` — 7 days · `/monthly` — 30 days · `/quarterly` — 90 days
-* `/board` `/marketing` `/pr` `/dev` — view any audience's report on demand, regardless of the group's own registered type
-* `/details` — expanded breakdown of the last report generated for this chat
-* `/recommend` — ranked priorities only · `/funnel` — conversion funnel breakdown only
-* `/ask <question>` — free-form Q&A, restricted to the brand's own analytics
-  (a relevance guard blocks off-topic questions before they reach the AI, to
-  protect API credits from misuse)
-
-Weekly and monthly reports are also posted automatically via a scheduler
-(`src/scheduler/scheduledReports.js`).
-
-### Other Notifications
-
-* Slack (planned)
-
-Future
-
-* Email
-* Discord
-* WhatsApp
-
----
-
-## Technology Stack
-
-Backend
-
-* Node.js
-* JavaScript
+## Architecture
 
 Analytics
 
-* PostHog
-* HogQL
+↓
 
-Cloud
+Metric Engine
 
-* AWS Lambda
-* EventBridge
-* DynamoDB
-* Secrets Manager
-* CloudWatch
+↓
 
-Testing
+AI Insight Generator
 
-* Jest
+↓
 
-AI
+Reports
 
-* OpenAI
+↓
 
----
+Notifications
 
-## Project Structure
+## SnapShots
+<img width="1455" height="743" alt="User Research" src="https://github.com/user-attachments/assets/5ee68050-1f6a-4ab6-8875-a4c0b4291cb1" />
+<img width="1453" height="742" alt="Website Metrics" src="https://github.com/user-attachments/assets/a4e7d530-41b4-4b49-8c0d-12327fb9ce6f" />
 
-Production code is organized by responsibility:
-
-* `src/config` - centralized application configuration
-* `src/services` - external API communication
-* `src/queries` - reusable HogQL queries
-* `src/metrics` - business analytics logic
-* `src/explorer` - development-only PostHog discovery utilities
-* `src/storage` - historical snapshot persistence
-* `src/comparison` - historical trend calculation
-* `src/ai` - prompt generation and AI reports
-* `src/notifications` - report delivery channels
-* `src/scheduler` - scheduled report execution
-* `src/utils` - shared helpers
-* `tests` - Jest test suites
-
-See `docs/ARCHITECTURE.md` for the full architecture.
-
----
-
-## Setup
-
-1. Install dependencies:
-
-```bash
-npm install
-```
-
-2. Copy `.env.example` to `.env` and fill in the required credentials.
-
-3. Run tests:
-
-```bash
-npm test
-```
-
-Explorer scripts in `src/explorer` are for development and schema discovery only. They are not imported by production modules.
-
----
-
-## Development Status
-
-Current Version
-
-v0.1.0
-
-Current Phase
-
-Foundation cleanup complete; analytics engine implementation begins next.
-
----
-
-## Documentation
-
-* docs/ARCHITECTURE.md
-* docs/ENGINEERING_GUIDE.md
-* docs/ROADMAP.md
-* docs/DECISIONS.md
-
----
-
-## License
-
-Private project.
-
-Open-source readiness is maintained throughout development.
+<img width="1536" height="1024" alt="ChatGPT Image Jun 26, 2026, 06_22_46 PM" src="https://github.com/user-attachments/assets/50b70100-81e3-4996-a7d1-ae62635e8f12" />
