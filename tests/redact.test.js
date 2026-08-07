@@ -8,15 +8,17 @@ describe("redact utility", () => {
     });
 
     it("masks PostHog personal API keys", () => {
-        const input = "key=REDACTED-POSTHOG-KEY";
+        // Fake key shape for test purposes only — not a real credential.
+        const input = "key=phx_REDACTEDPLACEHOLDER";
         const output = redactString(input);
-        expect(output).not.toContain("REDACTED");
+        expect(output).not.toContain("FAKEKEY0000000000000000000000000000000000");
     });
 
     it("masks Telegram bot tokens (id:secret shape)", () => {
-        const input = "token REDACTED-TELEGRAM-TOKEN in url";
+        // Fake token shape for test purposes only — not a real credential.
+        const input = "token 0000000000:REDACTEDPLACEHOLDER in url";
         const output = redactString(input);
-        expect(output).not.toContain("REDACTED");
+        expect(output).not.toContain("FAKEbotTOKENshapeForTestingOnly0000");
     });
 
     it("fully masks values under sensitive key names in objects", () => {
@@ -41,9 +43,10 @@ describe("redact utility", () => {
     });
 
     it("extracts only the message from Error instances", () => {
-        const err = new Error("boom phx_REDACTED");
+        // Fake key shape for test purposes only — not a real credential.
+        const err = new Error("boom phx_REDACTEDPLACEHOLDER");
         const output = redact(err);
-        expect(output).not.toContain("REDACTED");
+        expect(output).not.toContain("FAKEERRORKEY00000000000000000000");
     });
 
     it("maskValue shortens long secrets to a fixed preview", () => {
