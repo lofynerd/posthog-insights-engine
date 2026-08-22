@@ -22,7 +22,8 @@
                 { "name": "AWS_REGION", "value": "us-east-1" },
                 { "name": "AWS_BUCKET_NAME", "value": "tomasi-vercel-images" },
                 { "name": "AWS_S3_KEY_PREFIX", "value": "posthog-insights-engine" },
-                { "name": "BRAND_NAME", "value": "Tomasi" }
+                { "name": "BRAND_NAME", "value": "Tomasi" },
+                { "name": "TOMASI_API_BASE_URL", "value": "https://tomasi.design" }
             ],
             "secrets": [
                 {
@@ -36,6 +37,10 @@
                 {
                     "name": "TELEGRAM_BOT_TOKEN",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:167611893897:secret:posthog-insights-engine/TELEGRAM_BOT_TOKEN-AQWkBk"
+                },
+                {
+                    "name": "TOMASI_BOT_SERVICE_API_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:167611893897:secret:posthog-insights-engine/TOMASI_BOT_SERVICE_API_KEY-s32S4H"
                 }
             ],
             "logConfiguration": {
