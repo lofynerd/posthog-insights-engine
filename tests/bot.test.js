@@ -53,6 +53,26 @@ jest.mock("../src/utils/logger", () => ({
     error: jest.fn(),
 }));
 
+const mockTomasiApiInstance = {
+    createInfluencer: jest.fn(),
+    listInfluencers: jest.fn(),
+    disableInfluencer: jest.fn(),
+};
+
+jest.mock("../src/services/tomasiApi.service", () => ({
+    getInstance: jest.fn(() => mockTomasiApiInstance),
+}));
+
+const mockCampaignCollect = jest.fn();
+jest.mock("../src/metrics/campaign", () => ({
+    collect: (...args) => mockCampaignCollect(...args),
+}));
+
+const mockCollectInstagram = jest.fn();
+jest.mock("../src/metrics/social", () => ({
+    collectInstagram: (...args) => mockCollectInstagram(...args),
+}));
+
 const groupRegistry = require("../src/notifications/groupRegistry");
 const { generateGroupReport } = require("../src/insights/reportGenerator");
 const analysisService = require("../src/ai/analysis.service");
@@ -107,6 +127,9 @@ describe("Telegram bot commands", () => {
             "funnel",
             "ask",
             "test",
+            "influencer",
+            "campaign",
+            "social",
         ];
         expected.forEach((cmd) => expect(mockCommandHandlers.has(cmd)).toBe(true));
     });
@@ -383,6 +406,395 @@ describe("Telegram bot commands", () => {
             expect(allReplies).toContain("Registered as *board*");
             expect(allReplies).toContain("PostHog reachable");
             expect(allReplies).toContain("AI reachable");
+        });
+    });
+
+    describe("/influencer (board group only, writes to production)", () => {
+        it("rejects non-board groups", async () => {
+            groupRegistry.getGroup.mockResolvedValue({ groupName: "Marketing Group", reportType: "marketing" });
+            const ctx = buildCtx({
+                chat: { id: -700001, type: "supergroup" },
+                message: { text: "/influencer add Jane 15" },
+            });
+
+            await mockCommandHandlers.get("influencer")(ctx);
+
+            expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("restricted to the board"));
+            expect(mockTomasiApiInstance.createInfluencer).not.toHaveBeenCalled();
+        });
+
+        it("shows usage when no subcommand is given", async () => {
+            groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+            const ctx = buildCtx({
+                chat: { id: -700002, type: "supergroup" },
+                message: { text: "/influencer" },
+            });
+
+            await mockCommandHandlers.get("influencer")(ctx);
+
+            expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("Usage:"));
+        });
+
+        describe("add", () => {
+            it("shows usage when no discount percentage is present", async () => {
+                groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+                const ctx = buildCtx({
+                    chat: { id: -700003, type: "supergroup" },
+                    message: { text: "/influencer add Jane Doe" },
+                });
+
+                await mockCommandHandlers.get("influencer")(ctx);
+
+                expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("Usage: /influencer add"));
+                expect(mockTomasiApiInstance.createInfluencer).not.toHaveBeenCalled();
+            });
+
+            it("creates an influencer code with name + discount only", async () => {
+                groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+                mockTomasiApiInstance.createInfluencer.mockResolvedValue({
+                    name: "Jane Doe",
+                    platform: "other",
+                    discountPercent: 15,
+                    code: "JANEDOE15",
+                    slug: "jane-doe",
+                    agreedFee: null,
+                });
+                const ctx = buildCtx({
+                    chat: { id: -700004, type: "supergroup" },
+                    message: { text: "/influencer add Jane Doe 15" },
+                });
+
+                await mockCommandHandlers.get("influencer")(ctx);
+
+                expect(mockTomasiApiInstance.createInfluencer).toHaveBeenCalledWith({
+                    name: "Jane Doe",
+                    discountPercent: 15,
+                });
+                const allReplies = ctx.reply.mock.calls.map((call) => call[0]).join("\n");
+                expect(allReplies).toContain("JANEDOE15");
+                expect(allReplies).toContain("/campaign jane-doe");
+            });
+
+            it("creates an influencer code with platform and agreed fee", async () => {
+                groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+                mockTomasiApiInstance.createInfluencer.mockResolvedValue({
+                    name: "Jane Doe",
+                    platform: "instagram",
+                    discountPercent: 20,
+                    code: "JANEDOE20",
+                    slug: "jane-doe",
+                    agreedFee: 500,
+                });
+                const ctx = buildCtx({
+                    chat: { id: -700005, type: "supergroup" },
+                    message: { text: "/influencer add Jane Doe 20 instagram 500" },
+                });
+
+                await mockCommandHandlers.get("influencer")(ctx);
+
+                expect(mockTomasiApiInstance.createInfluencer).toHaveBeenCalledWith({
+                    name: "Jane Doe",
+                    discountPercent: 20,
+                    platform: "instagram",
+                    agreedFee: 500,
+                });
+            });
+
+            it("surfaces a friendly error when the API call fails", async () => {
+                groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+                mockTomasiApiInstance.createInfluencer.mockRejectedValue(new Error("Code already exists"));
+                const ctx = buildCtx({
+                    chat: { id: -700006, type: "supergroup" },
+                    message: { text: "/influencer add Jane 15" },
+                });
+
+                await mockCommandHandlers.get("influencer")(ctx);
+
+                expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("Code already exists"));
+            });
+        });
+
+        describe("list", () => {
+            it("shows a message when there are no influencers yet", async () => {
+                groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+                mockTomasiApiInstance.listInfluencers.mockResolvedValue([]);
+                const ctx = buildCtx({
+                    chat: { id: -700007, type: "supergroup" },
+                    message: { text: "/influencer list" },
+                });
+
+                await mockCommandHandlers.get("influencer")(ctx);
+
+                expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("No influencer codes"));
+            });
+
+            it("lists existing influencers with status indicators", async () => {
+                groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+                mockTomasiApiInstance.listInfluencers.mockResolvedValue([
+                    { name: "Jane", code: "JANE10", discountPercent: 10, platform: "instagram", status: "active" },
+                    { name: "Bob", code: "BOB20", discountPercent: 20, platform: "tiktok", status: "disabled" },
+                ]);
+                const ctx = buildCtx({
+                    chat: { id: -700008, type: "supergroup" },
+                    message: { text: "/influencer list" },
+                });
+
+                await mockCommandHandlers.get("influencer")(ctx);
+
+                const allReplies = ctx.reply.mock.calls.map((call) => call[0]).join("\n");
+                expect(allReplies).toContain("JANE10");
+                expect(allReplies).toContain("BOB20");
+                expect(allReplies).toContain("🟢");
+                expect(allReplies).toContain("⚪");
+            });
+        });
+
+        describe("disable", () => {
+            it("shows usage when no slug is given", async () => {
+                groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+                const ctx = buildCtx({
+                    chat: { id: -700009, type: "supergroup" },
+                    message: { text: "/influencer disable" },
+                });
+
+                await mockCommandHandlers.get("influencer")(ctx);
+
+                expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("Usage: /influencer disable"));
+                expect(mockTomasiApiInstance.disableInfluencer).not.toHaveBeenCalled();
+            });
+
+            it("disables the given slug", async () => {
+                groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+                mockTomasiApiInstance.disableInfluencer.mockResolvedValue({ message: "Disabled Jane's code." });
+                const ctx = buildCtx({
+                    chat: { id: -700010, type: "supergroup" },
+                    message: { text: "/influencer disable jane-doe" },
+                });
+
+                await mockCommandHandlers.get("influencer")(ctx);
+
+                expect(mockTomasiApiInstance.disableInfluencer).toHaveBeenCalledWith("jane-doe");
+                expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("Disabled Jane's code."));
+            });
+        });
+    });
+
+    describe("/campaign", () => {
+        it("shows usage when no slug is given", async () => {
+            groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+            const ctx = buildCtx({
+                chat: { id: -800001, type: "supergroup" },
+                message: { text: "/campaign" },
+            });
+
+            await mockCommandHandlers.get("campaign")(ctx);
+
+            expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("Usage: /campaign"));
+        });
+
+        it("reports when the slug doesn't match any known influencer", async () => {
+            groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+            mockTomasiApiInstance.listInfluencers.mockResolvedValue([{ slug: "jane-doe" }]);
+            const ctx = buildCtx({
+                chat: { id: -800002, type: "supergroup" },
+                message: { text: "/campaign unknown-slug" },
+            });
+
+            await mockCommandHandlers.get("campaign")(ctx);
+
+            expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("No influencer found"));
+            expect(mockCampaignCollect).not.toHaveBeenCalled();
+        });
+
+        it("shows the full breakdown (cost, orders, units, revenue, ROI) for a known campaign", async () => {
+            groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+            mockTomasiApiInstance.listInfluencers.mockResolvedValue([
+                { name: "Jane Doe", platform: "instagram", slug: "jane-doe", code: "JANEDOE15", agreedFee: 200 },
+            ]);
+            mockCampaignCollect.mockResolvedValue({
+                campaign: { slug: "jane-doe", periodDays: null },
+                influencer: { name: "Jane Doe", platform: "instagram" },
+                code: "JANEDOE15",
+                cost: 200,
+                orders: 5,
+                unitsSold: 7,
+                revenue: 500,
+                conversionRate: 0.05,
+                roiPercent: 150,
+                profit: 300,
+                reach: 100,
+                pageviews: 120,
+            });
+            const ctx = buildCtx({
+                chat: { id: -800003, type: "supergroup" },
+                message: { text: "/campaign jane-doe" },
+            });
+
+            await mockCommandHandlers.get("campaign")(ctx);
+
+            expect(mockCampaignCollect).toHaveBeenCalledWith(
+                expect.objectContaining({ slug: "jane-doe" }),
+                null
+            );
+            const allReplies = ctx.reply.mock.calls.map((call) => call[0]).join("\n");
+            expect(allReplies).toContain("Jane Doe");
+            expect(allReplies).toContain("100");
+            expect(allReplies).toContain("Units sold");
+            expect(allReplies).toContain("7");
+            expect(allReplies).toContain("Campaign cost");
+            expect(allReplies).toContain("200");
+            expect(allReplies).toContain("ROI: 150%");
+        });
+
+        it("shows N/A (never a misleading number) for cost and ROI when no fee is set", async () => {
+            groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+            mockTomasiApiInstance.listInfluencers.mockResolvedValue([
+                { name: "Jane Doe", platform: "instagram", slug: "jane-doe", code: "JANEDOE15", agreedFee: null },
+            ]);
+            mockCampaignCollect.mockResolvedValue({
+                campaign: { slug: "jane-doe", periodDays: null },
+                influencer: { name: "Jane Doe", platform: "instagram" },
+                code: "JANEDOE15",
+                cost: null,
+                orders: 5,
+                unitsSold: 6,
+                revenue: 500,
+                conversionRate: 0.05,
+                roiPercent: null,
+                profit: null,
+                reach: 100,
+                pageviews: 110,
+            });
+            const ctx = buildCtx({
+                chat: { id: -800004, type: "supergroup" },
+                message: { text: "/campaign jane-doe" },
+            });
+
+            await mockCommandHandlers.get("campaign")(ctx);
+
+            const allReplies = ctx.reply.mock.calls.map((call) => call[0]).join("\n");
+            expect(allReplies).toContain("ROI: N/A");
+            expect(allReplies).toContain("N/A (not set)");
+            expect(allReplies).not.toContain("ROI: null");
+            expect(allReplies).not.toContain("Infinity");
+        });
+
+        it("shows N/A for ROI when cost is explicitly 0", async () => {
+            groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+            mockTomasiApiInstance.listInfluencers.mockResolvedValue([
+                { name: "Jane Doe", platform: "instagram", slug: "jane-doe", code: "JANEDOE15", agreedFee: 0 },
+            ]);
+            mockCampaignCollect.mockResolvedValue({
+                campaign: { slug: "jane-doe", periodDays: null },
+                influencer: { name: "Jane Doe", platform: "instagram" },
+                code: "JANEDOE15",
+                cost: null,
+                orders: 2,
+                unitsSold: 2,
+                revenue: 100,
+                conversionRate: 0.02,
+                roiPercent: null,
+                profit: null,
+                reach: 100,
+                pageviews: 100,
+            });
+            const ctx = buildCtx({
+                chat: { id: -800006, type: "supergroup" },
+                message: { text: "/campaign jane-doe" },
+            });
+
+            await mockCommandHandlers.get("campaign")(ctx);
+
+            const allReplies = ctx.reply.mock.calls.map((call) => call[0]).join("\n");
+            expect(allReplies).toContain("ROI: N/A");
+        });
+
+        it("respects an explicit [days] argument", async () => {
+            groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+            mockTomasiApiInstance.listInfluencers.mockResolvedValue([
+                { name: "Jane Doe", platform: "instagram", slug: "jane-doe", code: "JANEDOE15", agreedFee: null },
+            ]);
+            mockCampaignCollect.mockResolvedValue({
+                campaign: { slug: "jane-doe", periodDays: 30 },
+                influencer: { name: "Jane Doe", platform: "instagram" },
+                code: "JANEDOE15",
+                cost: null,
+                orders: 1,
+                unitsSold: 1,
+                revenue: 100,
+                conversionRate: 0.1,
+                roiPercent: null,
+                profit: null,
+                reach: 10,
+                pageviews: 10,
+            });
+            const ctx = buildCtx({
+                chat: { id: -800005, type: "supergroup" },
+                message: { text: "/campaign jane-doe 30" },
+            });
+
+            await mockCommandHandlers.get("campaign")(ctx);
+
+            expect(mockCampaignCollect).toHaveBeenCalledWith(expect.any(Object), 30);
+        });
+    });
+
+    describe("/social", () => {
+        it("defaults to 30 days and reports account metrics + top post", async () => {
+            groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+            mockCollectInstagram.mockResolvedValue({
+                reach: 1000,
+                accountsEngaged: 50,
+                followerCount: 500,
+                topPost: {
+                    caption: "Our CEO on brand values",
+                    likes: 200,
+                    comments: 15,
+                    saved: 30,
+                    reach: 800,
+                    permalink: "https://instagram.com/p/xyz",
+                },
+            });
+            const ctx = buildCtx({ chat: { id: -900002, type: "supergroup" }, message: { text: "/social" } });
+
+            await mockCommandHandlers.get("social")(ctx);
+
+            expect(mockCollectInstagram).toHaveBeenCalledWith(30, 10);
+            const allReplies = ctx.reply.mock.calls.map((call) => call[0]).join("\n");
+            expect(allReplies).toContain("1000");
+            expect(allReplies).toContain("CEO on brand values");
+            expect(allReplies).toContain("instagram.com/p/xyz");
+        });
+
+        it("respects an explicit [days] argument", async () => {
+            groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+            mockCollectInstagram.mockResolvedValue({ reach: 10, accountsEngaged: 1, followerCount: 5, topPost: null });
+            const ctx = buildCtx({ chat: { id: -900003, type: "supergroup" }, message: { text: "/social 7" } });
+
+            await mockCommandHandlers.get("social")(ctx);
+
+            expect(mockCollectInstagram).toHaveBeenCalledWith(7, 10);
+        });
+
+        it("shows a message when there are no recent posts", async () => {
+            groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+            mockCollectInstagram.mockResolvedValue({ reach: 10, accountsEngaged: 1, followerCount: 5, topPost: null });
+            const ctx = buildCtx({ chat: { id: -900004, type: "supergroup" }, message: { text: "/social" } });
+
+            await mockCommandHandlers.get("social")(ctx);
+
+            const allReplies = ctx.reply.mock.calls.map((call) => call[0]).join("\n");
+            expect(allReplies).toContain("No recent posts found.");
+        });
+
+        it("surfaces a friendly error when the Instagram API call fails", async () => {
+            groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+            mockCollectInstagram.mockRejectedValue(new Error("Instagram account insights request failed"));
+            const ctx = buildCtx({ chat: { id: -900005, type: "supergroup" }, message: { text: "/social" } });
+
+            await mockCommandHandlers.get("social")(ctx);
+
+            expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("Instagram account insights request failed"));
         });
     });
 });

@@ -16,6 +16,12 @@ const REQUIRED_KEYS = [
     "AWS_SECRET_ACCESS_KEY",
     "AWS_BUCKET_NAME",
     "AWS_REGION",
+    "TOMASI_API_BASE_URL",
+    "TOMASI_BOT_SERVICE_API_KEY",
+    "INSTAGRAM_APP_ID",
+    "INSTAGRAM_APP_SECRET",
+    "INSTAGRAM_BUSINESS_ACCOUNT_ID",
+    "INSTAGRAM_ACCESS_TOKEN",
 ];
 
 describe("config", () => {
@@ -106,5 +112,42 @@ describe("config", () => {
         const config = require("../src/config");
 
         expect(() => config.assertStorageReady()).not.toThrow();
+    });
+
+    it("rejects a non-HTTPS TOMASI_API_BASE_URL", () => {
+        process.env.TOMASI_API_BASE_URL = "http://tomasi.design";
+
+        expect(() => require("../src/config")).toThrow(/must use HTTPS/);
+    });
+
+    it("defaults TOMASI_API_BASE_URL to the production site when unset", () => {
+        const config = require("../src/config");
+        expect(config.tomasiApi.baseUrl).toBe("https://tomasi.design");
+    });
+
+    it("assertTomasiApiReady throws when the service key is missing", () => {
+        const config = require("../src/config");
+        expect(() => config.assertTomasiApiReady()).toThrow(/TOMASI_BOT_SERVICE_API_KEY/);
+    });
+
+    it("assertTomasiApiReady passes when the service key is configured", () => {
+        process.env.TOMASI_BOT_SERVICE_API_KEY = "test-key";
+        const config = require("../src/config");
+        expect(() => config.assertTomasiApiReady()).not.toThrow();
+    });
+
+    it("assertInstagramReady throws when credentials are missing", () => {
+        const config = require("../src/config");
+        expect(() => config.assertInstagramReady()).toThrow(/Missing required environment variable/);
+    });
+
+    it("assertInstagramReady passes when all Instagram credentials are configured", () => {
+        process.env.INSTAGRAM_APP_ID = "app123";
+        process.env.INSTAGRAM_APP_SECRET = "secret123";
+        process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID = "17841400000000000";
+        process.env.INSTAGRAM_ACCESS_TOKEN = "token123";
+
+        const config = require("../src/config");
+        expect(() => config.assertInstagramReady()).not.toThrow();
     });
 });

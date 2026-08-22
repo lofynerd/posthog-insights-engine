@@ -47,11 +47,13 @@ const aiBaseUrl = getEnv(
     "AI_BASE_URL",
     "https://generativelanguage.googleapis.com/v1beta/openai"
 );
+const tomasiApiBaseUrl = getEnv("TOMASI_API_BASE_URL", "https://tomasi.design");
 
 // Fail fast on malformed/insecure URLs at load time, before any
 // service gets a chance to send credentials anywhere.
 assertHttpsUrl(posthogHost, "POSTHOG_HOST");
 assertHttpsUrl(aiBaseUrl, "AI_BASE_URL");
+assertHttpsUrl(tomasiApiBaseUrl, "TOMASI_API_BASE_URL");
 
 const config = {
     app: {
@@ -91,6 +93,30 @@ const config = {
     },
     brand: {
         name: getEnv("BRAND_NAME", "Tomasi"),
+    },
+    // Outbound calls FROM this bot TO the tomasi-design website's
+    // admin/service API (currently: influencer discount code
+    // creation). This is the first integration point where this repo
+    // writes to production rather than only reading analytics.
+    tomasiApi: {
+        baseUrl: tomasiApiBaseUrl,
+        serviceKey: getEnv("TOMASI_BOT_SERVICE_API_KEY"),
+    },
+    // Instagram Graph API, using the "Instagram API with Instagram
+    // Login" flow (Business Login for Instagram) -- reads organic
+    // reach/engagement metrics for the Tomasi Business account.
+    // Read-only: this integration never posts, comments, or modifies
+    // anything on Instagram. No Facebook Page/app is involved.
+    instagram: {
+        appId: getEnv("INSTAGRAM_APP_ID"),
+        appSecret: getEnv("INSTAGRAM_APP_SECRET"),
+        // The IG professional account's numeric ID (not the @handle),
+        // obtained once via the OAuth helper script (scripts/instagramAuth.js).
+        businessAccountId: getEnv("INSTAGRAM_BUSINESS_ACCOUNT_ID"),
+        // Long-lived access token (~60 days). Refreshed automatically
+        // before expiry by instagram.service.js -- see refreshTokenIfNeeded().
+        accessToken: getEnv("INSTAGRAM_ACCESS_TOKEN"),
+        apiVersion: getEnv("INSTAGRAM_API_VERSION", "v21.0"),
     },
 };
 
@@ -143,6 +169,36 @@ function assertStorageReady() {
 }
 
 /**
+ * Fail-fast gate for anything calling tomasi-design's service API
+ * (influencer code creation). Kept separate since most bot commands
+ * never need this — only the influencer-management commands do.
+ */
+function assertTomasiApiReady() {
+    if (!config.tomasiApi.serviceKey) {
+        throw new ConfigError(
+            "Missing required environment variable: TOMASI_BOT_SERVICE_API_KEY"
+        );
+    }
+}
+
+/**
+ * Fail-fast gate for Instagram reporting commands.
+ */
+function assertInstagramReady() {
+    const missing = [];
+    if (!config.instagram.appId) missing.push("INSTAGRAM_APP_ID");
+    if (!config.instagram.appSecret) missing.push("INSTAGRAM_APP_SECRET");
+    if (!config.instagram.businessAccountId) missing.push("INSTAGRAM_BUSINESS_ACCOUNT_ID");
+    if (!config.instagram.accessToken) missing.push("INSTAGRAM_ACCESS_TOKEN");
+
+    if (missing.length > 0) {
+        throw new ConfigError(
+            `Missing required environment variable(s): ${missing.join(", ")}`
+        );
+    }
+}
+
+/**
  * Recursively freeze the config object so nothing downstream can
  * accidentally (or maliciously, via a compromised dependency) mutate
  * credentials or endpoints at runtime.
@@ -160,6 +216,8 @@ function deepFreeze(obj) {
 // reassigning it, it can still be invoked normally).
 config.assertPipelineReady = assertPipelineReady;
 config.assertStorageReady = assertStorageReady;
+config.assertTomasiApiReady = assertTomasiApiReady;
+config.assertInstagramReady = assertInstagramReady;
 config.ConfigError = ConfigError;
 
 deepFreeze(config);

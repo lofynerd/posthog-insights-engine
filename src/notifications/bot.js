@@ -51,6 +51,11 @@ function buildQuickMenu() {
         "*Dig deeper:*\n" +
         "/details /recommend /funnel\n" +
         "/ask <question>\n\n" +
+        "*Board group only:*\n" +
+        "/influencer add|list|disable — manage influencer discount codes\n" +
+        "/campaign <slug> — ROI report for a collaboration\n\n" +
+        "*Social:*\n" +
+        "/social [days] — Instagram reach and top post\n\n" +
         "Send /help for a full walkthrough, or /test to check everything's connected."
     );
 }
@@ -91,6 +96,17 @@ function buildWalkthrough() {
         "to protect AI usage.\n\n" +
         "*6. Check the bot is working*\n" +
         "/test — verifies PostHog, AI, and Telegram connectivity for this group\n\n" +
+        "*7. Manage influencer collaborations (board group only)*\n" +
+        "/influencer add <name> <discount%> [platform] [agreedFee] — creates a real Stripe " +
+        "discount code + a short tracking link, both handed to the influencer\n" +
+        "/influencer list — see all codes created\n" +
+        "/influencer disable <slug> — deactivate a code\n" +
+        "/campaign <slug> [days] — reach, purchases, revenue, and ROI for one collaboration\n" +
+        "This writes to the live site (a real, working discount code), so it's restricted to " +
+        "the board group only.\n\n" +
+        "*8. Instagram performance*\n" +
+        "/social [days] — reach, accounts engaged, follower count, and top-performing post " +
+        "for the Tomasi Instagram Business account (default: last 30 days)\n\n" +
         "Reports show a ❤️ Health Score and 🧠 Confidence Score (0-100, calculated from real data, " +
         "never guessed by AI) plus a 🟢🟡🟠🔴 rating so you know how much to trust the numbers at a glance."
     );
@@ -344,6 +360,276 @@ function createBot(botToken = config.notifications.telegram.botToken) {
     });
 
     /**
+     * /influencer add|list|disable — manages influencer discount
+     * codes by calling tomasi-design's service API. This is the one
+     * command family that WRITES to production (creates a real,
+     * working Stripe discount code), so it's restricted to groups
+     * registered as "board" (leadership) and rate-limited tightly,
+     * separate from every other (read-only) command in this bot.
+     *
+     * Lazily requires tomasiApi.service so a missing
+     * TOMASI_BOT_SERVICE_API_KEY only breaks this one command family,
+     * not the entire bot on startup.
+     */
+    async function requireBoardGroup(ctx) {
+        const group = await requireRegisteredGroup(ctx);
+        if (!group) return null;
+
+        if (normalizeReportType(group.reportType) !== "board") {
+            await ctx.reply(
+                "🚫 Influencer code management is restricted to the board/leadership group."
+            );
+            return null;
+        }
+        return group;
+    }
+
+    bot.command("influencer", async (ctx) => {
+        const group = await requireBoardGroup(ctx);
+        if (!group) return;
+
+        const limitCheck = reportLimiter.check(String(ctx.chat.id));
+        if (!limitCheck.allowed) {
+            const seconds = Math.ceil(limitCheck.retryAfterMs / 1000);
+            return ctx.reply(`⏳ Limit reached for this group. Try again in ${seconds}s.`);
+        }
+
+        const args = ctx.message.text.split(/\s+/).slice(1);
+        const subcommand = args[0]?.toLowerCase();
+
+        let tomasiApi;
+        try {
+            tomasiApi = require("../services/tomasiApi.service").getInstance();
+        } catch (error) {
+            logger.error("tomasiApi.service unavailable", error.message);
+            return ctx.reply(
+                "❌ Influencer code management isn't configured on this deployment " +
+                    "(missing TOMASI_BOT_SERVICE_API_KEY)."
+            );
+        }
+
+        if (subcommand === "add") {
+            // /influencer add <name> <discountPercent> [platform] [agreedFee]
+            const rest = args.slice(1);
+            const discountIndex = rest.findIndex((token) => /^\d+$/.test(token));
+
+            if (discountIndex === -1) {
+                return ctx.reply(
+                    "Usage: /influencer add <name> <discount%> [platform] [agreedFee]\n" +
+                        "Example: /influencer add Jane Doe 15 instagram 500"
+                );
+            }
+
+            const name = rest.slice(0, discountIndex).join(" ").trim();
+            const discountPercent = Number(rest[discountIndex]);
+            const platform = rest[discountIndex + 1];
+            const agreedFee = rest[discountIndex + 2] !== undefined ? Number(rest[discountIndex + 2]) : undefined;
+
+            if (!name) {
+                return ctx.reply("Please provide the influencer's name before the discount percentage.");
+            }
+
+            try {
+                const influencer = await tomasiApi.createInfluencer({
+                    name,
+                    discountPercent,
+                    ...(platform ? { platform } : {}),
+                    ...(agreedFee !== undefined ? { agreedFee } : {}),
+                });
+
+                await replyLong(
+                    ctx,
+                    `✅ *Influencer code created*\n\n` +
+                        `Name: ${influencer.name}\n` +
+                        `Platform: ${influencer.platform}\n` +
+                        `Discount: *${influencer.discountPercent}%* off\n` +
+                        `Code: \`${influencer.code}\`\n` +
+                        `Link: ${influencer.shortLink}\n` +
+                        (influencer.agreedFee !== null ? `Agreed fee: ${influencer.agreedFee}\n` : "") +
+                        `\nSend either the code or the link to the influencer. ` +
+                        `Check performance later with /campaign ${influencer.slug}`
+                );
+            } catch (error) {
+                logger.error("Influencer creation failed", { chatId: ctx.chat.id, error: error.message });
+                await ctx.reply(`❌ ${error.message}`);
+            }
+            return;
+        }
+
+        if (subcommand === "list") {
+            try {
+                const influencers = await tomasiApi.listInfluencers();
+                if (influencers.length === 0) {
+                    return ctx.reply("No influencer codes created yet. Use /influencer add to create one.");
+                }
+
+                const lines = influencers.map(
+                    (inf) =>
+                        `${inf.status === "active" ? "🟢" : "⚪"} *${inf.name}* — \`${inf.code}\` (${inf.discountPercent}% off, ${inf.platform})`
+                );
+                await replyLong(ctx, `*Influencer codes:*\n\n${lines.join("\n")}`);
+            } catch (error) {
+                logger.error("Influencer list failed", { chatId: ctx.chat.id, error: error.message });
+                await ctx.reply(`❌ ${error.message}`);
+            }
+            return;
+        }
+
+        if (subcommand === "disable") {
+            const slug = args[1];
+            if (!slug) {
+                return ctx.reply("Usage: /influencer disable <slug>");
+            }
+
+            try {
+                const result = await tomasiApi.disableInfluencer(slug);
+                await ctx.reply(`✅ ${result.message}`);
+            } catch (error) {
+                logger.error("Influencer disable failed", { chatId: ctx.chat.id, error: error.message });
+                await ctx.reply(`❌ ${error.message}`);
+            }
+            return;
+        }
+
+        await ctx.reply(
+            "Usage:\n" +
+                "/influencer add <name> <discount%> [platform] [agreedFee]\n" +
+                "/influencer list\n" +
+                "/influencer disable <slug>"
+        );
+    });
+
+    /**
+     * /campaign <slug> [days] — ROI report for one influencer
+     * collaboration: reach (click-through), purchases, revenue, and
+     * ROI against the agreed fee. Defaults to all-time (no [days])
+     * since collaborations run on their own schedule, not calendar
+     * weeks/months.
+     */
+    bot.command("campaign", async (ctx) => {
+        const group = await requireRegisteredGroup(ctx);
+        if (!group) return;
+
+        const limitCheck = askLimiter.check(String(ctx.chat.id));
+        if (!limitCheck.allowed) {
+            const seconds = Math.ceil(limitCheck.retryAfterMs / 1000);
+            return ctx.reply(`⏳ Limit reached for this group. Try again in ${seconds}s.`);
+        }
+
+        const args = ctx.message.text.split(/\s+/).slice(1);
+        const slug = args[0];
+        const days = args[1] ? Number(args[1]) : null;
+
+        if (!slug) {
+            return ctx.reply("Usage: /campaign <slug> [days]\nExample: /campaign jane-doe 30");
+        }
+
+        let tomasiApi;
+        try {
+            tomasiApi = require("../services/tomasiApi.service").getInstance();
+        } catch (error) {
+            return ctx.reply("❌ Influencer campaign reporting isn't configured on this deployment.");
+        }
+
+        try {
+            const influencers = await tomasiApi.listInfluencers();
+            const influencer = influencers.find((inf) => inf.slug === slug.toLowerCase());
+
+            if (!influencer) {
+                return ctx.reply(`No influencer found with slug "${slug}". Use /influencer list to see all codes.`);
+            }
+
+            const campaignMetrics = require("../metrics/campaign");
+            const performance = await campaignMetrics.collect(influencer, days);
+
+            // ROI/cost are explicitly rendered as "N/A" (never 0% or a
+            // number) when no usable cost figure exists -- a ₹0/missing
+            // campaign cost makes ROI mathematically meaningless, not
+            // infinite or zero. See metrics/campaign.js computeRoiPercent().
+            const costLine = performance.cost !== null ? `${performance.cost}` : "N/A (not set)";
+            const roiLine =
+                performance.roiPercent !== null
+                    ? `${performance.roiPercent >= 0 ? "🟢" : "🔴"} *ROI: ${performance.roiPercent}%* (profit: ${performance.profit})`
+                    : "🟡 *ROI: N/A* — campaign cost not set. Use /influencer add with a fee, or update the record, to compute ROI.";
+
+            await replyLong(
+                ctx,
+                `📊 *Campaign: ${performance.influencer.name}* (${performance.influencer.platform})\n` +
+                    `Code: \`${performance.code}\`\n` +
+                    `${performance.campaign.periodDays ? `Last ${performance.campaign.periodDays} days` : "All-time"}\n\n` +
+                    `💵 Campaign cost: *${costLine}*\n` +
+                    `👥 Reach (click-through): *${performance.reach}*\n` +
+                    `🛒 Orders: *${performance.orders}*\n` +
+                    `📦 Units sold: *${performance.unitsSold}*\n` +
+                    `💰 Revenue: *${performance.revenue}*\n` +
+                    `📈 Conversion (reach → order): *${performance.conversionRate !== null ? (performance.conversionRate * 100).toFixed(2) + "%" : "N/A"}*\n\n` +
+                    roiLine
+            );
+        } catch (error) {
+            logger.error("Campaign report failed", { chatId: ctx.chat.id, error: error.message });
+            await ctx.reply(`❌ ${error.message}`);
+        }
+    });
+
+    /**
+     * /social [days] — Instagram reach, accounts engaged, follower
+     * count, and top-performing post. Lazily requires
+     * instagram.service so a missing credential only breaks this one
+     * command, not the whole bot.
+     */
+    bot.command("social", async (ctx) => {
+        const group = await requireRegisteredGroup(ctx);
+        if (!group) return;
+
+        const limitCheck = reportLimiter.check(String(ctx.chat.id));
+        if (!limitCheck.allowed) {
+            const seconds = Math.ceil(limitCheck.retryAfterMs / 1000);
+            return ctx.reply(`⏳ Limit reached for this group. Try again in ${seconds}s.`);
+        }
+
+        const args = ctx.message.text.split(/\s+/).slice(1);
+        const days = args[0] ? Number(args[0]) : 30;
+
+        let socialMetrics;
+        try {
+            socialMetrics = require("../metrics/social");
+        } catch (error) {
+            return ctx.reply(
+                "❌ Instagram reporting isn't configured on this deployment (missing INSTAGRAM_* credentials)."
+            );
+        }
+
+        try {
+            const metrics = await socialMetrics.collectInstagram(days, 10);
+
+            const lines = [
+                `📸 *Instagram Performance* (last ${days} days)`,
+                "",
+                `👁️ Reach: *${metrics.reach ?? "n/a"}*`,
+                `🤝 Accounts engaged: *${metrics.accountsEngaged ?? "n/a"}*`,
+                `👥 Followers: *${metrics.followerCount ?? "n/a"}*`,
+                "",
+            ];
+
+            if (metrics.topPost) {
+                lines.push(
+                    `🏆 *Top post*: ${metrics.topPost.caption || "(no caption)"}`,
+                    `❤️ ${metrics.topPost.likes ?? "n/a"} likes · 💬 ${metrics.topPost.comments ?? "n/a"} comments · ` +
+                        `🔖 ${metrics.topPost.saved ?? "n/a"} saves · 👁️ ${metrics.topPost.reach ?? "n/a"} reach`,
+                    metrics.topPost.permalink || ""
+                );
+            } else {
+                lines.push("No recent posts found.");
+            }
+
+            await replyLong(ctx, lines.filter(Boolean).join("\n"));
+        } catch (error) {
+            logger.error("Instagram report failed", { chatId: ctx.chat.id, error: error.message });
+            await ctx.reply(`❌ ${error.message}`);
+        }
+    });
+
+    /**
      * /test — sanity-check every command in the current group without
      * spending a full AI report call for each one. Verifies:
      * - the group is registered
@@ -378,6 +664,8 @@ function createBot(botToken = config.notifications.telegram.botToken) {
         lines.push("/board /marketing /pr /dev");
         lines.push("/details /recommend /funnel");
         lines.push('/ask <question>');
+        lines.push("/influencer add|list|disable /campaign <slug> — board group only");
+        lines.push("/social [days]");
         lines.push("/help — full walkthrough");
 
         await replyLong(ctx, lines.join("\n"));
