@@ -23,7 +23,8 @@
                 { "name": "AWS_BUCKET_NAME", "value": "tomasi-vercel-images" },
                 { "name": "AWS_S3_KEY_PREFIX", "value": "posthog-insights-engine" },
                 { "name": "BRAND_NAME", "value": "Tomasi" },
-                { "name": "TOMASI_API_BASE_URL", "value": "https://tomasi.design" }
+                { "name": "TOMASI_API_BASE_URL", "value": "https://tomasi.design" },
+                { "name": "ADMIN_TELEGRAM_USER_ID", "value": "6208262978" }
             ],
             "secrets": [
                 {

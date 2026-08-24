@@ -50,11 +50,8 @@ async function replyLong(ctx, text) {
 function buildQuickMenu(isBoard = false) {
     return (
         "👋 *Tomasi AI* — analytics reports for this group\n\n" +
-        "*Setup (admin, once):*\n" +
-        `/register <type> [name] — types: ${VALID_REPORT_TYPES.join(", ")}\n\n` +
         "*Reports:*\n" +
-        "/latest /weekly /monthly /quarterly\n" +
-        "/board /marketing /pr /dev — view any audience's report\n\n" +
+        "/latest /weekly /monthly /quarterly\n\n" +
         "*Dig deeper:*\n" +
         "/details /recommend /funnel\n" +
         "/ask <question>\n\n" +
@@ -85,23 +82,13 @@ function buildQuickMenu(isBoard = false) {
  */
 function buildWalkthrough(isBoard = false) {
     const sections = [
-        "*Register this group (admin, once)*\n" +
-            "`/register <type> [name]`\n" +
-            `Types: ${VALID_REPORT_TYPES.join(", ")} (legacy: founder→board, developer→development)\n` +
-            "Example: `/register marketing Marketing Team`\n" +
-            "This decides which audience's report this group gets by default.",
         "*Get a report for a time period*\n" +
             "/latest — today (≤350 words)\n" +
             "/weekly — last 7 days (≤500 words)\n" +
             "/monthly — last 30 days (≤700 words)\n" +
             "/quarterly — last 90 days (≤700 words)\n" +
-            "Reports are cached per day, so re-running the same command twice in a day is instant.",
-        "*Check another audience's view*\n" +
-            "/board — revenue, growth, business health\n" +
-            "/marketing — traffic, campaigns, SEO, funnels\n" +
-            "/pr — brand visibility, audience growth, sentiment\n" +
-            "/dev — infrastructure, performance, errors\n" +
-            "Any registered group can peek at any audience's report.",
+            "Reports are cached per day, so re-running the same command twice in a day is instant.\n" +
+            "Ask the admin to register this group first if these aren't working yet.",
         "*Go deeper on the last report*\n" +
             "/details — full expanded breakdown of your last report\n" +
             "/recommend — ranked priorities only\n" +
@@ -201,9 +188,7 @@ function createBot(botToken = config.notifications.telegram.botToken) {
                 await replyLong(
                     ctx,
                     "👋 *Tomasi AI* just joined this group.\n\n" +
-                        "An admin should run:\n" +
-                        `/register <type> [name] — types: ${VALID_REPORT_TYPES.join(", ")}\n\n` +
-                        "Then send /help for the full walkthrough."
+                        "This group needs to be registered before reports work here — ping the admin to run /register."
                 );
                 return;
             }
@@ -214,6 +199,8 @@ function createBot(botToken = config.notifications.telegram.botToken) {
     });
 
     bot.command("register", async (ctx) => {
+        if (!requireAdminUser(ctx)) return;
+
         const args = ctx.message.text.split(/\s+/).slice(1);
         const rawType = args[0];
         const reportType = normalizeReportType(rawType);
@@ -240,13 +227,31 @@ function createBot(botToken = config.notifications.telegram.botToken) {
     async function requireRegisteredGroup(ctx) {
         const group = await groupRegistry.getGroup(ctx.chat.id);
         if (!group) {
-            await ctx.reply(
-                "This group isn't registered yet. An admin should run:\n" +
-                    `/register <report_type> [group name]\nValid types: ${VALID_REPORT_TYPES.join(", ")}`
-            );
+            await ctx.reply("This group isn't registered yet — ping the admin to run /register here.");
             return null;
         }
         return group;
+    }
+
+    /**
+     * Restricts a command to a single Telegram user (ADMIN_TELEGRAM_USER_ID),
+     * regardless of which group it's run in. Used for /register (decides
+     * what data a whole group can see going forward) and the
+     * cross-audience /board /marketing /pr /dev commands (would otherwise
+     * let e.g. the PR group read board-only revenue/business-health data).
+     *
+     * Fails closed: if ADMIN_TELEGRAM_USER_ID isn't configured, every
+     * caller is rejected rather than the restriction silently not applying.
+     */
+    function requireAdminUser(ctx) {
+        const adminUserId = config.notifications.telegram.adminUserId;
+        const senderId = ctx.from?.id !== undefined ? String(ctx.from.id) : null;
+
+        if (!adminUserId || !senderId || senderId !== String(adminUserId)) {
+            ctx.reply("🚫 This command is restricted to a single admin.");
+            return false;
+        }
+        return true;
     }
 
     // Tracks the last (groupName, periodType) a group requested, so
@@ -289,10 +294,10 @@ function createBot(botToken = config.notifications.telegram.botToken) {
     // marketing group checking /board before a leadership sync).
     // Uses the group's own S3 memory scope (groupName) so cached
     // snapshots are still shared across audiences for the same group.
-    bot.command("board", (ctx) => handlePeriodReport(ctx, "weekly", "board"));
-    bot.command("marketing", (ctx) => handlePeriodReport(ctx, "weekly", "marketing"));
-    bot.command("pr", (ctx) => handlePeriodReport(ctx, "weekly", "pr"));
-    bot.command("dev", (ctx) => handlePeriodReport(ctx, "weekly", "development"));
+    bot.command("board", (ctx) => requireAdminUser(ctx) && handlePeriodReport(ctx, "weekly", "board"));
+    bot.command("marketing", (ctx) => requireAdminUser(ctx) && handlePeriodReport(ctx, "weekly", "marketing"));
+    bot.command("pr", (ctx) => requireAdminUser(ctx) && handlePeriodReport(ctx, "weekly", "pr"));
+    bot.command("dev", (ctx) => requireAdminUser(ctx) && handlePeriodReport(ctx, "weekly", "development"));
 
     /**
      * Shared handler for the three "expand on the last report"
@@ -764,7 +769,7 @@ function createBot(botToken = config.notifications.telegram.botToken) {
         const lines = [];
 
         lines.push(`🧪 *Test report for chat* \`${ctx.chat.id}\``);
-        lines.push(group ? `✅ Registered as *${group.reportType}* ("${group.groupName}")` : "⚠️ Not registered — run /register");
+        lines.push(group ? `✅ Registered as *${group.reportType}* ("${group.groupName}")` : "⚠️ Not registered yet — ask the admin to run /register");
 
         try {
             const metrics = await collectAll(1, 0);
@@ -783,10 +788,11 @@ function createBot(botToken = config.notifications.telegram.botToken) {
         lines.push("");
         lines.push("Available commands here:");
         lines.push("/latest /weekly /monthly /quarterly");
-        lines.push("/board /marketing /pr /dev");
         lines.push("/details /recommend /funnel");
         lines.push('/ask <question>');
-        lines.push("/influencer add|list|update|disable /campaign <slug> — board group only");
+        if (normalizeReportType(group?.reportType) === "board") {
+            lines.push("/influencer add|list|update|disable /campaign <slug> — board group only");
+        }
         lines.push("/social [days]");
         lines.push("/help — full walkthrough");
 

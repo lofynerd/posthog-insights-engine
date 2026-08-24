@@ -12,6 +12,7 @@ const REQUIRED_KEYS = [
     "AI_API_KEY",
     "TELEGRAM_BOT_TOKEN",
     "TELEGRAM_CHAT_ID",
+    "ADMIN_TELEGRAM_USER_ID",
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
     "AWS_BUCKET_NAME",
@@ -149,5 +150,16 @@ describe("config", () => {
 
         const config = require("../src/config");
         expect(() => config.assertInstagramReady()).not.toThrow();
+    });
+
+    it("defaults adminUserId to empty when ADMIN_TELEGRAM_USER_ID is unset", () => {
+        const config = require("../src/config");
+        expect(config.notifications.telegram.adminUserId).toBe("");
+    });
+
+    it("reads adminUserId from ADMIN_TELEGRAM_USER_ID when set", () => {
+        process.env.ADMIN_TELEGRAM_USER_ID = "6208262978";
+        const config = require("../src/config");
+        expect(config.notifications.telegram.adminUserId).toBe("6208262978");
     });
 });

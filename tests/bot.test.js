@@ -28,6 +28,22 @@ jest.mock("../src/notifications/groupRegistry", () => ({
     registerGroup: jest.fn(),
 }));
 
+const ADMIN_USER_ID = 6208262978;
+
+jest.mock("../src/config", () => {
+    const actual = jest.requireActual("../src/config");
+    return {
+        ...actual,
+        notifications: {
+            ...actual.notifications,
+            telegram: {
+                ...actual.notifications.telegram,
+                adminUserId: "6208262978",
+            },
+        },
+    };
+});
+
 jest.mock("../src/insights/reportGenerator", () => ({
     generateGroupReport: jest.fn(),
 }));
@@ -87,6 +103,12 @@ function buildCtx(overrides = {}) {
         message: { text: "/latest" },
         reply: jest.fn().mockResolvedValue(undefined),
         botInfo: { id: 999 },
+        // Defaults to the configured admin user so existing tests for
+        // commands that are now admin-restricted (/register, /board,
+        // /marketing, /pr, /dev) don't all need to opt in individually.
+        // Tests specifically covering the restriction itself override
+        // this with a different id.
+        from: { id: ADMIN_USER_ID },
         ...overrides,
     };
 }
@@ -146,7 +168,7 @@ describe("Telegram bot commands", () => {
             await mockCommandHandlers.get("start")(ctx);
 
             expect(ctx.reply).toHaveBeenCalledWith(
-                expect.stringContaining("/register"),
+                expect.stringContaining("/latest"),
                 expect.any(Object)
             );
         });
@@ -158,8 +180,12 @@ describe("Telegram bot commands", () => {
 
             const allReplies = ctx.reply.mock.calls.map((call) => call[0]).join("\n");
             expect(allReplies).toContain("Full Walkthrough");
-            expect(allReplies).toContain("/register");
             expect(allReplies).toContain("Health Score");
+            // /register and cross-audience viewing are admin-personal
+            // now (see requireAdminUser), not a group-level feature --
+            // the general walkthrough shouldn't advertise either.
+            expect(allReplies).not.toContain("/register");
+            expect(allReplies).not.toContain("/board —");
         });
 
         it("/start omits the influencer section for a non-board group", async () => {
@@ -215,7 +241,7 @@ describe("Telegram bot commands", () => {
 
             const allReplies = ctx.reply.mock.calls.map((call) => call[0]).join("\n");
             expect(allReplies).toContain("just joined");
-            expect(allReplies).toContain("/register");
+            expect(allReplies).toContain("admin");
         });
 
         it("shows the quick menu when a regular member joins a registered group", async () => {
@@ -248,6 +274,18 @@ describe("Telegram bot commands", () => {
     });
 
     describe("/register", () => {
+        it("rejects a non-admin caller regardless of the group", async () => {
+            const ctx = buildCtx({
+                chat: { id: -400000, type: "supergroup" },
+                message: { text: "/register board" },
+                from: { id: 999999999 },
+            });
+            await mockCommandHandlers.get("register")(ctx);
+
+            expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("restricted to a single admin"));
+            expect(groupRegistry.registerGroup).not.toHaveBeenCalled();
+        });
+
         it("rejects an invalid report type", async () => {
             const ctx = buildCtx({ chat: { id: -400001, type: "supergroup" }, message: { text: "/register nonsense" } });
             await mockCommandHandlers.get("register")(ctx);
@@ -323,6 +361,20 @@ describe("Telegram bot commands", () => {
             await mockCommandHandlers.get("dev")(ctx);
 
             expect(generateGroupReport).toHaveBeenCalledWith("PR Group", "development", "weekly");
+        });
+
+        it("rejects a non-admin caller from viewing another audience's report (e.g. PR trying /board)", async () => {
+            groupRegistry.getGroup.mockResolvedValue({ groupName: "PR Group", reportType: "pr" });
+            const ctx = buildCtx({
+                chat: { id: -300006, type: "supergroup" },
+                message: { text: "/board" },
+                from: { id: 999999999 },
+            });
+
+            await mockCommandHandlers.get("board")(ctx);
+
+            expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("restricted to a single admin"));
+            expect(generateGroupReport).not.toHaveBeenCalled();
         });
 
         it("replies with a friendly error if report generation fails", async () => {

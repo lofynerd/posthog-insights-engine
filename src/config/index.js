@@ -79,6 +79,14 @@ const config = {
             // several groups, each with its own report type) is handled
             // by the group registry in src/notifications/groupRegistry.js.
             chatId: getEnv("TELEGRAM_CHAT_ID"),
+            // Telegram's own numeric user ID (not username -- get it
+            // from @userinfobot) for the one person allowed to run
+            // /register and view another audience's report via
+            // /board /marketing /pr /dev. Both are sensitive: /register
+            // decides what data a whole group can see going forward,
+            // and cross-audience viewing would otherwise let e.g. the
+            // PR group read board-only revenue/business-health data.
+            adminUserId: getEnv("ADMIN_TELEGRAM_USER_ID"),
         },
     },
     aws: {
