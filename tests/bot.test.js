@@ -56,6 +56,7 @@ jest.mock("../src/utils/logger", () => ({
 const mockTomasiApiInstance = {
     createInfluencer: jest.fn(),
     listInfluencers: jest.fn(),
+    updateInfluencer: jest.fn(),
     disableInfluencer: jest.fn(),
 };
 
@@ -473,6 +474,9 @@ describe("Telegram bot commands", () => {
                 const allReplies = ctx.reply.mock.calls.map((call) => call[0]).join("\n");
                 expect(allReplies).toContain("JANEDOE15");
                 expect(allReplies).toContain("/campaign jane-doe");
+                expect(allReplies).toContain("ROI can't be calculated yet");
+                expect(allReplies).toContain("/influencer update jane-doe");
+                expect(allReplies).toContain("/influencer disable jane-doe");
             });
 
             it("creates an influencer code with platform and agreed fee", async () => {
@@ -498,6 +502,8 @@ describe("Telegram bot commands", () => {
                     platform: "instagram",
                     agreedFee: 500,
                 });
+                const allReplies = ctx.reply.mock.calls.map((call) => call[0]).join("\n");
+                expect(allReplies).not.toContain("ROI can't be calculated yet");
             });
 
             it("surfaces a friendly error when the API call fails", async () => {
@@ -546,6 +552,81 @@ describe("Telegram bot commands", () => {
                 expect(allReplies).toContain("BOB20");
                 expect(allReplies).toContain("🟢");
                 expect(allReplies).toContain("⚪");
+            });
+        });
+
+        describe("update", () => {
+            it("shows usage when no slug is given", async () => {
+                groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+                const ctx = buildCtx({
+                    chat: { id: -701001, type: "supergroup" },
+                    message: { text: "/influencer update" },
+                });
+
+                await mockCommandHandlers.get("influencer")(ctx);
+
+                expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("Usage: /influencer update"));
+                expect(mockTomasiApiInstance.updateInfluencer).not.toHaveBeenCalled();
+            });
+
+            it("updates both platform and agreedFee", async () => {
+                groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+                mockTomasiApiInstance.updateInfluencer.mockResolvedValue({
+                    name: "Jane Doe",
+                    slug: "jane-doe",
+                    platform: "instagram",
+                    agreedFee: 500,
+                });
+                const ctx = buildCtx({
+                    chat: { id: -701002, type: "supergroup" },
+                    message: { text: "/influencer update jane-doe instagram 500" },
+                });
+
+                await mockCommandHandlers.get("influencer")(ctx);
+
+                expect(mockTomasiApiInstance.updateInfluencer).toHaveBeenCalledWith("jane-doe", {
+                    platform: "instagram",
+                    agreedFee: 500,
+                });
+                const allReplies = ctx.reply.mock.calls.map((call) => call[0]).join("\n");
+                expect(allReplies).toContain("ROI can now be calculated");
+                expect(allReplies).toContain("/campaign jane-doe");
+            });
+
+            it("updates only agreedFee when platform is skipped with -", async () => {
+                groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+                mockTomasiApiInstance.updateInfluencer.mockResolvedValue({
+                    name: "Jane Doe",
+                    slug: "jane-doe",
+                    platform: "other",
+                    agreedFee: 300,
+                });
+                const ctx = buildCtx({
+                    chat: { id: -701003, type: "supergroup" },
+                    message: { text: "/influencer update jane-doe - 300" },
+                });
+
+                await mockCommandHandlers.get("influencer")(ctx);
+
+                expect(mockTomasiApiInstance.updateInfluencer).toHaveBeenCalledWith("jane-doe", {
+                    agreedFee: 300,
+                });
+                const allReplies = ctx.reply.mock.calls.map((call) => call[0]).join("\n");
+                expect(allReplies).toContain("ROI still can't be calculated");
+                expect(allReplies).toContain("platform");
+            });
+
+            it("surfaces a friendly error when the API call fails", async () => {
+                groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+                mockTomasiApiInstance.updateInfluencer.mockRejectedValue(new Error("Influencer not found"));
+                const ctx = buildCtx({
+                    chat: { id: -701004, type: "supergroup" },
+                    message: { text: "/influencer update unknown-slug instagram 500" },
+                });
+
+                await mockCommandHandlers.get("influencer")(ctx);
+
+                expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("Influencer not found"));
             });
         });
 

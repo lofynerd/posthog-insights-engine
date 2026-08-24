@@ -85,6 +85,40 @@ class TomasiApiService {
     }
 
     /**
+     * Update an existing influencer's platform and/or agreed fee.
+     * Does not touch the code, slug, or discount percent -- those are
+     * the discount's actual terms and shouldn't change silently after
+     * an influencer has started sharing the code.
+     *
+     * Exists specifically so a campaign's cost (and therefore ROI --
+     * see metrics/campaign.js's computeRoiPercent()) can be set or
+     * corrected after creation, since /influencer add doesn't require
+     * either field up front.
+     *
+     * @param {string} slug
+     * @param {object} params
+     * @param {string} [params.platform] - instagram/tiktok/youtube/other
+     * @param {number} [params.agreedFee] - what we're paying the influencer, for ROI reporting
+     * @returns {Promise<object>} The updated influencer record.
+     */
+    async updateInfluencer(slug, params) {
+        if (typeof slug !== "string" || !SLUG_PATTERN.test(slug)) {
+            throw new Error("Invalid slug");
+        }
+        this._validateUpdateParams(params);
+
+        try {
+            const response = await this.client.patch(`/api/service/influencers/${slug}`, params);
+            logger.info("Influencer updated", { slug });
+            return response.data.influencer;
+        } catch (error) {
+            const detail = error.response?.data?.message || error.message;
+            logger.error("Failed to update influencer", detail);
+            throw new Error(`Failed to update influencer: ${detail}`);
+        }
+    }
+
+    /**
      * Deactivate an influencer's discount code.
      */
     async disableInfluencer(slug) {
@@ -126,6 +160,27 @@ class TomasiApiService {
         }
         if (slug !== undefined && !SLUG_PATTERN.test(slug)) {
             throw new Error("slug must be 2-40 lowercase letters/numbers/hyphens.");
+        }
+        if (agreedFee !== undefined && agreedFee !== null) {
+            const fee = Number(agreedFee);
+            if (!Number.isFinite(fee) || fee < 0) {
+                throw new Error("agreedFee must be a non-negative number.");
+            }
+        }
+    }
+
+    /**
+     * Validate influencer-update input before it ever reaches the
+     * network call. Mirrors tomasi-design's updateInfluencer
+     * controller validation.
+     * @private
+     */
+    _validateUpdateParams({ platform, agreedFee } = {}) {
+        if (platform === undefined && agreedFee === undefined) {
+            throw new Error("Provide at least one of: platform, agreedFee.");
+        }
+        if (platform !== undefined && !VALID_PLATFORMS.includes(platform)) {
+            throw new Error(`platform must be one of: ${VALID_PLATFORMS.join(", ")}`);
         }
         if (agreedFee !== undefined && agreedFee !== null) {
             const fee = Number(agreedFee);

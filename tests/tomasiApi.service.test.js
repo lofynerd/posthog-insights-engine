@@ -167,6 +167,83 @@ describe("TomasiApiService", () => {
         });
     });
 
+    describe("updateInfluencer", () => {
+        it("rejects an invalid slug before making a network call", async () => {
+            const patch = jest.fn();
+            const service = buildService({ patch });
+
+            await expect(service.updateInfluencer("not a slug!", { agreedFee: 500 })).rejects.toThrow(
+                /Invalid slug/
+            );
+            expect(patch).not.toHaveBeenCalled();
+        });
+
+        it("rejects when neither platform nor agreedFee is provided", async () => {
+            const patch = jest.fn();
+            const service = buildService({ patch });
+
+            await expect(service.updateInfluencer("jane-doe", {})).rejects.toThrow(
+                /at least one of/
+            );
+            expect(patch).not.toHaveBeenCalled();
+        });
+
+        it("rejects an invalid platform", async () => {
+            const patch = jest.fn();
+            const service = buildService({ patch });
+
+            await expect(
+                service.updateInfluencer("jane-doe", { platform: "snapchat" })
+            ).rejects.toThrow(/platform must be one of/);
+        });
+
+        it("rejects a negative agreedFee", async () => {
+            const patch = jest.fn();
+            const service = buildService({ patch });
+
+            await expect(
+                service.updateInfluencer("jane-doe", { agreedFee: -1 })
+            ).rejects.toThrow(/non-negative/);
+        });
+
+        it("patches the update endpoint with valid params and returns the updated influencer", async () => {
+            const patch = jest.fn().mockResolvedValue({
+                data: { influencer: { name: "Jane", slug: "jane-doe", platform: "instagram", agreedFee: 500 } },
+            });
+            const service = buildService({ patch });
+
+            const result = await service.updateInfluencer("jane-doe", { platform: "instagram", agreedFee: 500 });
+
+            expect(patch).toHaveBeenCalledWith("/api/service/influencers/jane-doe", {
+                platform: "instagram",
+                agreedFee: 500,
+            });
+            expect(result.agreedFee).toBe(500);
+        });
+
+        it("allows updating just one field", async () => {
+            const patch = jest.fn().mockResolvedValue({
+                data: { influencer: { name: "Jane", slug: "jane-doe", agreedFee: 300 } },
+            });
+            const service = buildService({ patch });
+
+            await service.updateInfluencer("jane-doe", { agreedFee: 300 });
+
+            expect(patch).toHaveBeenCalledWith("/api/service/influencers/jane-doe", { agreedFee: 300 });
+        });
+
+        it("surfaces the server's error message on failure", async () => {
+            const patch = jest.fn().mockRejectedValue({
+                response: { data: { message: "Influencer not found." } },
+            });
+            const service = buildService({ patch });
+
+            await expect(service.updateInfluencer("jane-doe", { agreedFee: 500 })).rejects.toThrow(
+                "Influencer not found."
+            );
+        });
+    });
+
     describe("disableInfluencer", () => {
         it("rejects an invalid slug before making a network call", async () => {
             const patch = jest.fn();

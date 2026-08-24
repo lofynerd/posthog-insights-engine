@@ -52,7 +52,7 @@ function buildQuickMenu() {
         "/details /recommend /funnel\n" +
         "/ask <question>\n\n" +
         "*Board group only:*\n" +
-        "/influencer add|list|disable — manage influencer discount codes\n" +
+        "/influencer add|list|update|disable — manage influencer discount codes\n" +
         "/campaign <slug> — ROI report for a collaboration\n\n" +
         "*Social:*\n" +
         "/social [days] — Instagram reach and top post\n\n" +
@@ -100,8 +100,15 @@ function buildWalkthrough() {
         "/influencer add <name> <discount%> [platform] [agreedFee] — creates a real Stripe " +
         "discount code + a short tracking link, both handed to the influencer\n" +
         "/influencer list — see all codes created\n" +
-        "/influencer disable <slug> — deactivate a code\n" +
-        "/campaign <slug> [days] — reach, purchases, revenue, and ROI for one collaboration\n" +
+        "/influencer update <slug> <platform|-> <agreedFee|-> — set or fix platform/cost on an " +
+        "existing code (use - to leave a field unchanged)\n" +
+        "/influencer disable <slug> — removes the code: deactivates it in Stripe so it stops " +
+        "working at checkout immediately, but keeps all history so /campaign still reports on it\n" +
+        "/campaign <slug> [days] — reach, purchases, revenue, and ROI for one collaboration\n\n" +
+        "⚠️ *ROI needs both platform and agreedFee set* — if either is skipped in /influencer add " +
+        "(they're optional there), /campaign will show ROI as N/A forever until you run " +
+        "/influencer update to fill them in. This is by design: a $0/missing cost can't produce a " +
+        "real ROI number, only a misleading one.\n\n" +
         "This writes to the live site (a real, working discount code), so it's restricted to " +
         "the board group only.\n\n" +
         "*8. Instagram performance*\n" +
@@ -437,6 +444,18 @@ function createBot(botToken = config.notifications.telegram.botToken) {
                     ...(agreedFee !== undefined ? { agreedFee } : {}),
                 });
 
+                // ROI (/campaign) can only ever show a real number once
+                // BOTH platform and agreedFee are set -- see
+                // metrics/campaign.js's computeRoiPercent(), which
+                // returns "N/A" rather than a misleading 0%/∞% when
+                // cost is missing. Flag it clearly right here, at
+                // creation time, rather than leaving the board to
+                // discover it later when /campaign just says N/A with
+                // no obvious next step.
+                const missingForRoi = [];
+                if (!influencer.platform || influencer.platform === "other") missingForRoi.push("platform");
+                if (influencer.agreedFee === null) missingForRoi.push("agreedFee");
+
                 await replyLong(
                     ctx,
                     `✅ *Influencer code created*\n\n` +
@@ -447,10 +466,69 @@ function createBot(botToken = config.notifications.telegram.botToken) {
                         `Link: ${influencer.shortLink}\n` +
                         (influencer.agreedFee !== null ? `Agreed fee: ${influencer.agreedFee}\n` : "") +
                         `\nSend either the code or the link to the influencer. ` +
-                        `Check performance later with /campaign ${influencer.slug}`
+                        `Check performance later with /campaign ${influencer.slug}\n` +
+                        (missingForRoi.length > 0
+                            ? `\n🟡 *ROI can't be calculated yet* — missing ${missingForRoi.join(" and ")}. Set ${missingForRoi.length > 1 ? "them" : "it"} anytime with:\n` +
+                              `\`/influencer update ${influencer.slug} ${missingForRoi.includes("platform") ? "<platform>" : influencer.platform} ${missingForRoi.includes("agreedFee") ? "<agreedFee>" : influencer.agreedFee}\`\n`
+                            : "") +
+                        `\nTo remove this code later: \`/influencer disable ${influencer.slug}\``
                 );
             } catch (error) {
                 logger.error("Influencer creation failed", { chatId: ctx.chat.id, error: error.message });
+                await ctx.reply(`❌ ${error.message}`);
+            }
+            return;
+        }
+
+        if (subcommand === "update") {
+            // /influencer update <slug> <platform|"-"> <agreedFee|"-">
+            // Either positional value can be "-" to leave that field
+            // unchanged, so the board can set just one field (e.g.
+            // only the fee) without having to already know or re-type
+            // the other.
+            const slug = args[1];
+            const rawPlatform = args[2];
+            const rawAgreedFee = args[3];
+
+            if (!slug || (rawPlatform === undefined && rawAgreedFee === undefined)) {
+                return ctx.reply(
+                    "Usage: /influencer update <slug> <platform|-> <agreedFee|->\n" +
+                        "Use - to leave a field unchanged. Both fields must be set at least once " +
+                        "for /campaign to calculate ROI.\n" +
+                        "Example: /influencer update jane-doe instagram 500\n" +
+                        "Example (fee only): /influencer update jane-doe - 500"
+                );
+            }
+
+            const platform = rawPlatform && rawPlatform !== "-" ? rawPlatform : undefined;
+            const agreedFee = rawAgreedFee && rawAgreedFee !== "-" ? Number(rawAgreedFee) : undefined;
+
+            if (platform === undefined && agreedFee === undefined) {
+                return ctx.reply("Nothing to update — provide a platform, an agreedFee, or both (use - to skip one).");
+            }
+
+            try {
+                const influencer = await tomasiApi.updateInfluencer(slug.toLowerCase(), {
+                    ...(platform !== undefined ? { platform } : {}),
+                    ...(agreedFee !== undefined ? { agreedFee } : {}),
+                });
+
+                const stillMissing = [];
+                if (!influencer.platform || influencer.platform === "other") stillMissing.push("platform");
+                if (influencer.agreedFee === null) stillMissing.push("agreedFee");
+
+                await replyLong(
+                    ctx,
+                    `✅ *Influencer updated*\n\n` +
+                        `Name: ${influencer.name}\n` +
+                        `Platform: ${influencer.platform}\n` +
+                        `Agreed fee: ${influencer.agreedFee !== null ? influencer.agreedFee : "not set"}\n\n` +
+                        (stillMissing.length > 0
+                            ? `🟡 ROI still can't be calculated — missing ${stillMissing.join(" and ")}.`
+                            : `🟢 ROI can now be calculated. Check it with /campaign ${influencer.slug}`)
+                );
+            } catch (error) {
+                logger.error("Influencer update failed", { chatId: ctx.chat.id, error: error.message });
                 await ctx.reply(`❌ ${error.message}`);
             }
             return;
@@ -476,9 +554,14 @@ function createBot(botToken = config.notifications.telegram.botToken) {
         }
 
         if (subcommand === "disable") {
+            // Stripe doesn't support deleting a promotion code, only
+            // deactivating it -- this is the closest thing to
+            // "removing" an influencer: the code stops working at
+            // checkout immediately, but historical orders/ROI for it
+            // remain fully queryable via /campaign.
             const slug = args[1];
             if (!slug) {
-                return ctx.reply("Usage: /influencer disable <slug>");
+                return ctx.reply("Usage: /influencer disable <slug>\nNote: this deactivates the code (Stripe can't delete promo codes) — past orders and /campaign history are kept.");
             }
 
             try {
@@ -495,7 +578,8 @@ function createBot(botToken = config.notifications.telegram.botToken) {
             "Usage:\n" +
                 "/influencer add <name> <discount%> [platform] [agreedFee]\n" +
                 "/influencer list\n" +
-                "/influencer disable <slug>"
+                "/influencer update <slug> <platform|-> <agreedFee|-> — set/fix platform and cost so ROI can be calculated\n" +
+                "/influencer disable <slug> — removes the code (deactivates it; history is kept)"
         );
     });
 
@@ -664,7 +748,7 @@ function createBot(botToken = config.notifications.telegram.botToken) {
         lines.push("/board /marketing /pr /dev");
         lines.push("/details /recommend /funnel");
         lines.push('/ask <question>');
-        lines.push("/influencer add|list|disable /campaign <slug> — board group only");
+        lines.push("/influencer add|list|update|disable /campaign <slug> — board group only");
         lines.push("/social [days]");
         lines.push("/help — full walkthrough");
 
