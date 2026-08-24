@@ -141,6 +141,7 @@ describe("Telegram bot commands", () => {
 
     describe("/start and /help", () => {
         it("/start shows the quick command menu", async () => {
+            groupRegistry.getGroup.mockResolvedValue(null);
             const ctx = buildCtx({ chat: { id: -600001, type: "supergroup" }, message: { text: "/start" } });
             await mockCommandHandlers.get("start")(ctx);
 
@@ -151,6 +152,7 @@ describe("Telegram bot commands", () => {
         });
 
         it("/help shows the full walkthrough", async () => {
+            groupRegistry.getGroup.mockResolvedValue(null);
             const ctx = buildCtx({ chat: { id: -600002, type: "supergroup" }, message: { text: "/help" } });
             await mockCommandHandlers.get("help")(ctx);
 
@@ -158,6 +160,46 @@ describe("Telegram bot commands", () => {
             expect(allReplies).toContain("Full Walkthrough");
             expect(allReplies).toContain("/register");
             expect(allReplies).toContain("Health Score");
+        });
+
+        it("/start omits the influencer section for a non-board group", async () => {
+            groupRegistry.getGroup.mockResolvedValue({ groupName: "Marketing Group", reportType: "marketing" });
+            const ctx = buildCtx({ chat: { id: -600006, type: "supergroup" }, message: { text: "/start" } });
+            await mockCommandHandlers.get("start")(ctx);
+
+            const allReplies = ctx.reply.mock.calls.map((call) => call[0]).join("\n");
+            expect(allReplies).not.toContain("/influencer");
+            expect(allReplies).not.toContain("/campaign");
+        });
+
+        it("/start includes the influencer section for a board group", async () => {
+            groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+            const ctx = buildCtx({ chat: { id: -600007, type: "supergroup" }, message: { text: "/start" } });
+            await mockCommandHandlers.get("start")(ctx);
+
+            const allReplies = ctx.reply.mock.calls.map((call) => call[0]).join("\n");
+            expect(allReplies).toContain("/influencer");
+            expect(allReplies).toContain("/campaign");
+        });
+
+        it("/help omits the influencer section for a non-board group", async () => {
+            groupRegistry.getGroup.mockResolvedValue({ groupName: "Dev Group", reportType: "development" });
+            const ctx = buildCtx({ chat: { id: -600008, type: "supergroup" }, message: { text: "/help" } });
+            await mockCommandHandlers.get("help")(ctx);
+
+            const allReplies = ctx.reply.mock.calls.map((call) => call[0]).join("\n");
+            expect(allReplies).not.toContain("/influencer");
+            expect(allReplies).not.toContain("ROI needs both platform");
+        });
+
+        it("/help includes the influencer section for a board group", async () => {
+            groupRegistry.getGroup.mockResolvedValue({ groupName: "Board Group", reportType: "board" });
+            const ctx = buildCtx({ chat: { id: -600009, type: "supergroup" }, message: { text: "/help" } });
+            await mockCommandHandlers.get("help")(ctx);
+
+            const allReplies = ctx.reply.mock.calls.map((call) => call[0]).join("\n");
+            expect(allReplies).toContain("/influencer update");
+            expect(allReplies).toContain("ROI needs both platform");
         });
     });
 

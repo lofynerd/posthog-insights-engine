@@ -39,8 +39,15 @@ async function replyLong(ctx, text) {
  * /start. Kept intentionally brief (per the Tomasi AI "scannable, not
  * a wall of text" philosophy) — the deeper walkthrough lives in
  * /help for anyone who wants the full explanation.
+ *
+ * @param {boolean} [isBoard=false] - Whether to include the
+ *   influencer/campaign section. This writes to production (real
+ *   Stripe discount codes) and is restricted to the board group at
+ *   the command level (see requireBoardGroup below) — showing it in
+ *   every other group's menu would just advertise a command that
+ *   immediately rejects them.
  */
-function buildQuickMenu() {
+function buildQuickMenu(isBoard = false) {
     return (
         "👋 *Tomasi AI* — analytics reports for this group\n\n" +
         "*Setup (admin, once):*\n" +
@@ -51,9 +58,11 @@ function buildQuickMenu() {
         "*Dig deeper:*\n" +
         "/details /recommend /funnel\n" +
         "/ask <question>\n\n" +
-        "*Board group only:*\n" +
-        "/influencer add|list|update|disable — manage influencer discount codes\n" +
-        "/campaign <slug> — ROI report for a collaboration\n\n" +
+        (isBoard
+            ? "*Board group only:*\n" +
+              "/influencer add|list|update|disable — manage influencer discount codes\n" +
+              "/campaign <slug> — ROI report for a collaboration\n\n"
+            : "") +
         "*Social:*\n" +
         "/social [days] — Instagram reach and top post\n\n" +
         "Send /help for a full walkthrough, or /test to check everything's connected."
@@ -65,55 +74,74 @@ function buildQuickMenu() {
  * just listed. Kept out of the join-message path (buildQuickMenu)
  * since a wall of text on every join would work against the
  * "scannable" philosophy the reports themselves follow.
+ *
+ * Sections are numbered dynamically rather than hardcoded, so
+ * omitting the influencer/campaign section for non-board groups
+ * doesn't leave a gap in the numbering (e.g. jumping from 6 to 8).
+ *
+ * @param {boolean} [isBoard=false] - Whether to include the
+ *   influencer/campaign management section (see buildQuickMenu's
+ *   doc comment for why this is board-only).
  */
-function buildWalkthrough() {
+function buildWalkthrough(isBoard = false) {
+    const sections = [
+        "*Register this group (admin, once)*\n" +
+            "`/register <type> [name]`\n" +
+            `Types: ${VALID_REPORT_TYPES.join(", ")} (legacy: founder→board, developer→development)\n` +
+            "Example: `/register marketing Marketing Team`\n" +
+            "This decides which audience's report this group gets by default.",
+        "*Get a report for a time period*\n" +
+            "/latest — today (≤350 words)\n" +
+            "/weekly — last 7 days (≤500 words)\n" +
+            "/monthly — last 30 days (≤700 words)\n" +
+            "/quarterly — last 90 days (≤700 words)\n" +
+            "Reports are cached per day, so re-running the same command twice in a day is instant.",
+        "*Check another audience's view*\n" +
+            "/board — revenue, growth, business health\n" +
+            "/marketing — traffic, campaigns, SEO, funnels\n" +
+            "/pr — brand visibility, audience growth, sentiment\n" +
+            "/dev — infrastructure, performance, errors\n" +
+            "Any registered group can peek at any audience's report.",
+        "*Go deeper on the last report*\n" +
+            "/details — full expanded breakdown of your last report\n" +
+            "/recommend — ranked priorities only\n" +
+            "/funnel — conversion funnel breakdown only",
+        "*Ask a specific question*\n" +
+            '/ask "Why did conversion drop this week?"\n' +
+            `Only answers questions about ${config.brand.name}'s analytics — off-topic questions are rejected ` +
+            "to protect AI usage.",
+        "*Check the bot is working*\n" +
+            "/test — verifies PostHog, AI, and Telegram connectivity for this group",
+        ...(isBoard
+            ? [
+                  "*Manage influencer collaborations (board group only)*\n" +
+                      "/influencer add <name> <discount%> [platform] [agreedFee] — creates a real Stripe " +
+                      "discount code + a short tracking link, both handed to the influencer\n" +
+                      "/influencer list — see all codes created\n" +
+                      "/influencer update <slug> <platform|-> <agreedFee|-> — set or fix platform/cost on an " +
+                      "existing code (use - to leave a field unchanged)\n" +
+                      "/influencer disable <slug> — removes the code: deactivates it in Stripe so it stops " +
+                      "working at checkout immediately, but keeps all history so /campaign still reports on it\n" +
+                      "/campaign <slug> [days] — reach, purchases, revenue, and ROI for one collaboration\n\n" +
+                      "⚠️ *ROI needs both platform and agreedFee set* — if either is skipped in /influencer add " +
+                      "(they're optional there), /campaign will show ROI as N/A forever until you run " +
+                      "/influencer update to fill them in. This is by design: a $0/missing cost can't produce a " +
+                      "real ROI number, only a misleading one.\n\n" +
+                      "This writes to the live site (a real, working discount code), so it's restricted to " +
+                      "the board group only.",
+              ]
+            : []),
+        "*Instagram performance*\n" +
+            "/social [days] — reach, accounts engaged, follower count, and top-performing post " +
+            "for the Tomasi Instagram Business account (default: last 30 days)",
+    ];
+
+    const numbered = sections.map((section, index) => `*${index + 1}. ${section.replace(/^\*/, "")}`).join("\n\n");
+
     return (
         "📘 *Tomasi AI — Full Walkthrough*\n\n" +
-        "*1. Register this group (admin, once)*\n" +
-        "`/register <type> [name]`\n" +
-        `Types: ${VALID_REPORT_TYPES.join(", ")} (legacy: founder→board, developer→development)\n` +
-        "Example: `/register marketing Marketing Team`\n" +
-        "This decides which audience's report this group gets by default.\n\n" +
-        "*2. Get a report for a time period*\n" +
-        "/latest — today (≤350 words)\n" +
-        "/weekly — last 7 days (≤500 words)\n" +
-        "/monthly — last 30 days (≤700 words)\n" +
-        "/quarterly — last 90 days (≤700 words)\n" +
-        "Reports are cached per day, so re-running the same command twice in a day is instant.\n\n" +
-        "*3. Check another audience's view*\n" +
-        "/board — revenue, growth, business health\n" +
-        "/marketing — traffic, campaigns, SEO, funnels\n" +
-        "/pr — brand visibility, audience growth, sentiment\n" +
-        "/dev — infrastructure, performance, errors\n" +
-        "Any registered group can peek at any audience's report.\n\n" +
-        "*4. Go deeper on the last report*\n" +
-        "/details — full expanded breakdown of your last report\n" +
-        "/recommend — ranked priorities only\n" +
-        "/funnel — conversion funnel breakdown only\n\n" +
-        "*5. Ask a specific question*\n" +
-        '/ask "Why did conversion drop this week?"\n' +
-        `Only answers questions about ${config.brand.name}'s analytics — off-topic questions are rejected ` +
-        "to protect AI usage.\n\n" +
-        "*6. Check the bot is working*\n" +
-        "/test — verifies PostHog, AI, and Telegram connectivity for this group\n\n" +
-        "*7. Manage influencer collaborations (board group only)*\n" +
-        "/influencer add <name> <discount%> [platform] [agreedFee] — creates a real Stripe " +
-        "discount code + a short tracking link, both handed to the influencer\n" +
-        "/influencer list — see all codes created\n" +
-        "/influencer update <slug> <platform|-> <agreedFee|-> — set or fix platform/cost on an " +
-        "existing code (use - to leave a field unchanged)\n" +
-        "/influencer disable <slug> — removes the code: deactivates it in Stripe so it stops " +
-        "working at checkout immediately, but keeps all history so /campaign still reports on it\n" +
-        "/campaign <slug> [days] — reach, purchases, revenue, and ROI for one collaboration\n\n" +
-        "⚠️ *ROI needs both platform and agreedFee set* — if either is skipped in /influencer add " +
-        "(they're optional there), /campaign will show ROI as N/A forever until you run " +
-        "/influencer update to fill them in. This is by design: a $0/missing cost can't produce a " +
-        "real ROI number, only a misleading one.\n\n" +
-        "This writes to the live site (a real, working discount code), so it's restricted to " +
-        "the board group only.\n\n" +
-        "*8. Instagram performance*\n" +
-        "/social [days] — reach, accounts engaged, follower count, and top-performing post " +
-        "for the Tomasi Instagram Business account (default: last 30 days)\n\n" +
+        numbered +
+        "\n\n" +
         "Reports show a ❤️ Health Score and 🧠 Confidence Score (0-100, calculated from real data, " +
         "never guessed by AI) plus a 🟢🟡🟠🔴 rating so you know how much to trust the numbers at a glance."
     );
@@ -143,9 +171,17 @@ function createBot(botToken = config.notifications.telegram.botToken) {
         return next();
     });
 
-    bot.command("start", (ctx) => replyLong(ctx, buildQuickMenu()));
+    bot.command("start", async (ctx) => {
+        const group = await groupRegistry.getGroup(ctx.chat.id).catch(() => null);
+        const isBoard = normalizeReportType(group?.reportType) === "board";
+        await replyLong(ctx, buildQuickMenu(isBoard));
+    });
 
-    bot.command("help", (ctx) => replyLong(ctx, buildWalkthrough()));
+    bot.command("help", async (ctx) => {
+        const group = await groupRegistry.getGroup(ctx.chat.id).catch(() => null);
+        const isBoard = normalizeReportType(group?.reportType) === "board";
+        await replyLong(ctx, buildWalkthrough(isBoard));
+    });
 
     /**
      * Fires whenever one or more members join a group the bot is in
@@ -158,8 +194,9 @@ function createBot(botToken = config.notifications.telegram.botToken) {
         const newMembers = ctx.message?.new_chat_members || [];
         const botWasAdded = newMembers.some((member) => member.id === ctx.botInfo?.id);
 
+        const group = await groupRegistry.getGroup(ctx.chat.id).catch(() => null);
+
         if (botWasAdded) {
-            const group = await groupRegistry.getGroup(ctx.chat.id).catch(() => null);
             if (!group) {
                 await replyLong(
                     ctx,
@@ -172,7 +209,8 @@ function createBot(botToken = config.notifications.telegram.botToken) {
             }
         }
 
-        await replyLong(ctx, buildQuickMenu());
+        const isBoard = normalizeReportType(group?.reportType) === "board";
+        await replyLong(ctx, buildQuickMenu(isBoard));
     });
 
     bot.command("register", async (ctx) => {
