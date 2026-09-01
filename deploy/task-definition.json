@@ -24,7 +24,10 @@
                 { "name": "AWS_S3_KEY_PREFIX", "value": "posthog-insights-engine" },
                 { "name": "BRAND_NAME", "value": "Tomasi" },
                 { "name": "TOMASI_API_BASE_URL", "value": "https://tomasi.design" },
-                { "name": "ADMIN_TELEGRAM_USER_ID", "value": "6208262978" }
+                { "name": "ADMIN_TELEGRAM_USER_ID", "value": "6208262978" },
+                { "name": "INSTAGRAM_APP_ID", "value": "1361724986073222" },
+                { "name": "INSTAGRAM_BUSINESS_ACCOUNT_ID", "value": "38090196770625940" },
+                { "name": "INSTAGRAM_API_VERSION", "value": "v21.0" }
             ],
             "secrets": [
                 {
@@ -42,6 +45,14 @@
                 {
                     "name": "TOMASI_BOT_SERVICE_API_KEY",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:167611893897:secret:posthog-insights-engine/TOMASI_BOT_SERVICE_API_KEY-s32S4H"
+                },
+                {
+                    "name": "INSTAGRAM_APP_SECRET",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:167611893897:secret:posthog-insights-engine/INSTAGRAM_APP_SECRET-PAyDgw"
+                },
+                {
+                    "name": "INSTAGRAM_ACCESS_TOKEN",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:167611893897:secret:posthog-insights-engine/INSTAGRAM_ACCESS_TOKEN-HkkJEc"
                 }
             ],
             "logConfiguration": {
