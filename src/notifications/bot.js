@@ -120,7 +120,10 @@ function buildWalkthrough(isBoard = false) {
             : []),
         "*Instagram performance*\n" +
             "/social [days] — reach, accounts engaged, follower count, and top-performing post " +
-            "for the Tomasi Instagram Business account (default: last 30 days)",
+            "for the Tomasi Instagram Business account (default: last 30 days)\n" +
+            "Instagram data is also folded automatically into marketing and PR " +
+            "weekly/monthly/quarterly reports (not board or dev). Any group can still run " +
+            "/social directly regardless of its own registered type.",
     ];
 
     const numbered = sections.map((section, index) => `*${index + 1}. ${section.replace(/^\*/, "")}`).join("\n\n");
