@@ -37,13 +37,37 @@ describe("PostHogExportService", () => {
         expect(post).not.toHaveBeenCalled();
     });
 
-    it("creates an export, follows the 302 redirect manually, then downloads the S3 content unauthenticated", async () => {
+    it("returns the image bytes directly when PostHog responds 200 (no redirect)", async () => {
         const post = jest.fn().mockResolvedValue({
             data: { id: 999, has_content: true, exception: null },
         });
-        // The content endpoint 302s to a signed S3 URL rather than
-        // returning bytes directly.
+        // Observed in production: the content endpoint sometimes
+        // returns the PNG bytes directly with a 200, not a redirect.
         const get = jest.fn().mockResolvedValue({
+            status: 200,
+            data: Buffer.from("fake-png-bytes-direct"),
+        });
+        const service = buildService({ post, get });
+
+        const result = await service.exportInsightPng(12345);
+
+        expect(get).toHaveBeenCalledWith(
+            "/exports/999/content/",
+            expect.objectContaining({ responseType: "arraybuffer" })
+        );
+        expect(axios.get).not.toHaveBeenCalled();
+        expect(Buffer.isBuffer(result)).toBe(true);
+        expect(result.toString()).toBe("fake-png-bytes-direct");
+    });
+
+    it("creates an export, follows a 302 redirect manually, then downloads the S3 content unauthenticated", async () => {
+        const post = jest.fn().mockResolvedValue({
+            data: { id: 999, has_content: true, exception: null },
+        });
+        // Also observed in production: the content endpoint 302s to a
+        // signed S3 URL rather than returning bytes directly.
+        const get = jest.fn().mockResolvedValue({
+            status: 302,
             headers: { location: "https://s3.example.com/signed-url" },
         });
         const service = buildService({ post, get });
@@ -72,9 +96,9 @@ describe("PostHogExportService", () => {
         expect(result.toString()).toBe("fake-png-bytes");
     });
 
-    it("throws a clear error if the redirect response has no Location header", async () => {
+    it("throws a clear error if a 302 redirect response has no Location header", async () => {
         const post = jest.fn().mockResolvedValue({ data: { id: 999, has_content: true, exception: null } });
-        const get = jest.fn().mockResolvedValue({ headers: {} });
+        const get = jest.fn().mockResolvedValue({ status: 302, headers: {} });
         const service = buildService({ post, get });
 
         await expect(service.exportInsightPng(12345)).rejects.toThrow("PostHog export download failed");

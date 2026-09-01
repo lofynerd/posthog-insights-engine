@@ -73,21 +73,27 @@ class PostHogExportService {
         }
 
         try {
-            // The export content endpoint responds with a 302 to a
-            // signed, unauthenticated S3 URL -- the actual PNG bytes
-            // never come from PostHog's own host. this.client blocks
-            // redirects on every OTHER request specifically to stop
-            // our PostHog Authorization header leaking to an
-            // unintended host, so that protection must stay in place
-            // here too: catch the 302 manually, then fetch the S3
-            // URL as a completely separate, unauthenticated request
-            // (axios would otherwise resend our Authorization header
-            // to S3 on an auto-followed redirect, which is exactly
-            // what maxRedirects:0 exists to prevent).
-            const redirectResponse = await this.client.get(`/exports/${exportRecord.id}/content/`, {
-                validateStatus: (status) => status === 302,
+            // The export content endpoint has been observed returning
+            // the PNG bytes BOTH ways: sometimes a direct 200 with the
+            // image body, sometimes a 302 redirect to a signed,
+            // unauthenticated S3 URL. Handle both rather than assuming
+            // one -- this.client blocks auto-following redirects on
+            // every OTHER request specifically to stop our PostHog
+            // Authorization header leaking to an unintended host, so
+            // on a 302 the S3 URL is fetched as a completely separate,
+            // unauthenticated request instead of letting axios
+            // auto-follow (which would resend our Authorization header
+            // to S3, defeating the point of maxRedirects:0).
+            const response = await this.client.get(`/exports/${exportRecord.id}/content/`, {
+                responseType: "arraybuffer",
+                validateStatus: (status) => status === 200 || status === 302,
             });
-            const location = redirectResponse.headers.location;
+
+            if (response.status === 200) {
+                return Buffer.from(response.data);
+            }
+
+            const location = response.headers.location;
             if (!location) {
                 throw new Error("PostHog export redirect had no Location header");
             }
