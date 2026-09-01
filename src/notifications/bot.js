@@ -2,7 +2,7 @@ const { Telegraf } = require("telegraf");
 const config = require("../config");
 const logger = require("../utils/logger");
 const groupRegistry = require("./groupRegistry");
-const { generateGroupReport } = require("../insights/reportGenerator");
+const { generateGroupReport, generateCompactSummary } = require("../insights/reportGenerator");
 const analysisService = require("../ai/analysis.service");
 const { isRelevant, heuristicReject, MAX_QUESTION_LENGTH } = require("../ai/relevanceGuard");
 const { normalizeReportType, REPORT_TYPES, VALID_REPORT_TYPES } = require("../ai/reportTypes");
@@ -265,6 +265,14 @@ function createBot(botToken = config.notifications.telegram.botToken) {
     // low-stakes (no data loss, just a slightly less convenient UX).
     const lastReportByChat = new Map();
 
+    /**
+     * /latest /weekly /monthly /quarterly now send the compact
+     * chart+caption summary (a real PostHog chart for whichever
+     * metric moved the most, plus a short, reasoned caption) rather
+     * than the old multi-section text wall. The full text report
+     * (generateGroupReport) remains available via /details for
+     * anyone who wants the deeper breakdown.
+     */
     async function handlePeriodReport(ctx, periodType, reportTypeOverride) {
         const group = await requireRegisteredGroup(ctx);
         if (!group) return;
@@ -278,9 +286,29 @@ function createBot(botToken = config.notifications.telegram.botToken) {
         }
 
         try {
-            const { reportText } = await generateGroupReport(group.groupName, reportType, periodType);
+            const { caption, imageBuffer } = await generateCompactSummary(group.groupName, reportType, periodType);
             lastReportByChat.set(ctx.chat.id, { groupName: group.groupName, reportType, periodType });
-            await replyLong(ctx, reportText);
+
+            const sanitizedCaption = sanitizeMarkdown(caption);
+            if (imageBuffer) {
+                try {
+                    await ctx.replyWithPhoto({ source: imageBuffer }, { caption: sanitizedCaption, parse_mode: "Markdown" });
+                    return;
+                } catch (photoError) {
+                    // Markdown entity errors or oversized captions fall
+                    // back to plain text rather than failing the whole
+                    // report; a genuinely broken image buffer falls
+                    // through to the text-only path below.
+                    logger.warn("Photo delivery failed, falling back to text", { chatId: ctx.chat.id, error: photoError.message });
+                    try {
+                        await ctx.replyWithPhoto({ source: imageBuffer }, { caption: sanitizedCaption });
+                        return;
+                    } catch {
+                        // Fall through to text-only reply.
+                    }
+                }
+            }
+            await replyLong(ctx, caption);
         } catch (error) {
             logger.error("Report generation failed", { chatId: ctx.chat.id, error: error.message });
             await ctx.reply("❌ Couldn't generate the report right now. Please try again shortly.");

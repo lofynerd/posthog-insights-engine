@@ -1,8 +1,16 @@
 const { getOrBuildSnapshot, PERIOD_DEFINITIONS } = require("./reportMemory");
 const { computeHealthScore, computeConfidenceScore } = require("../comparison/compare");
 const analysisService = require("../ai/analysis.service");
-const { normalizeReportType } = require("../ai/reportTypes");
+const { normalizeReportType, REPORT_TYPES } = require("../ai/reportTypes");
+const { selectInsight } = require("./insightSelector");
 const logger = require("../utils/logger");
+
+const PERIOD_LABELS = {
+    latest: "Today",
+    weekly: "This Week",
+    monthly: "This Month",
+    quarterly: "This Quarter",
+};
 
 // Audiences whose scheduled/on-demand reports should include
 // Instagram performance data -- marketing and PR care about social
@@ -96,4 +104,78 @@ async function generateGroupReport(groupName, reportType, periodType, options = 
     return { reportText, healthScore, confidenceScore, current: metrics, comparison };
 }
 
-module.exports = { generateGroupReport, SOCIAL_REPORT_TYPES };
+/**
+ * Generate the compact chart+caption summary used by /latest /weekly
+ * /monthly /quarterly. Unlike generateGroupReport() (the full
+ * multi-section text report, still used by /details), this:
+ * 1. Picks the single most-moved metric relevant to this audience
+ *    (deterministic, zero AI/network cost -- see insightSelector.js).
+ * 2. Exports the REAL PostHog chart for that metric as a PNG (see
+ *    posthogExport.service.js) -- not a re-rendered approximation.
+ * 3. Spends exactly one narrow AI call explaining that one metric,
+ *    instead of a template pass across every metric regardless of
+ *    whether it moved.
+ *
+ * Fails open at every optional step: if chart export fails, the
+ * caption is still delivered as plain text; if the AI call fails,
+ * the whole compact summary falls back to the full text report
+ * rather than delivering nothing.
+ *
+ * @param {string} groupName
+ * @param {string} reportType - board/marketing/pr/development (or legacy alias).
+ * @param {string} periodType - latest/weekly/monthly/quarterly.
+ * @returns {Promise<{caption: string, imageBuffer: Buffer|null, healthScore: object, confidenceScore: number, selectedMetric: object}>}
+ */
+async function generateCompactSummary(groupName, reportType, periodType) {
+    const { current, previous, comparison } = await getOrBuildSnapshot(groupName, periodType);
+
+    const canonicalReportType = normalizeReportType(reportType) || "board";
+    let metrics = current;
+
+    if (SOCIAL_REPORT_TYPES.includes(canonicalReportType)) {
+        const social = await collectSocialForReport(periodType);
+        if (social) {
+            metrics = { ...current, social };
+        }
+    }
+
+    const healthScore = computeHealthScore(metrics);
+    const confidenceScore = computeConfidenceScore(metrics);
+    const selected = selectInsight(metrics, previous, canonicalReportType);
+
+    let imageBuffer = null;
+    try {
+        const posthogExport = require("../services/posthogExport.service").getInstance();
+        imageBuffer = await posthogExport.exportInsightPng(selected.insightId);
+    } catch (error) {
+        logger.warn("Chart export failed, compact summary will be text-only", error.message);
+    }
+
+    const brandName = REPORT_TYPES[canonicalReportType]?.title || "Tomasi";
+    const periodLabel = PERIOD_LABELS[periodType] || periodType;
+
+    let caption;
+    try {
+        caption = await analysisService.generateMetricCaption({
+            audience: canonicalReportType,
+            metricLabel: selected.label,
+            changePct: selected.changePct,
+            isFallback: selected.isFallback,
+            metrics,
+            confidenceScore,
+            periodLabel,
+            brandName,
+        });
+    } catch (error) {
+        logger.warn("Metric caption generation failed, falling back to a minimal caption", error.message);
+        caption = selected.isFallback
+            ? `${selected.label} — steady this ${periodLabel.toLowerCase()}.`
+            : `${selected.label} ${selected.changePct >= 0 ? "up" : "down"} ${Math.abs(selected.changePct)}% vs. the previous period.`;
+    }
+
+    logger.info("Compact summary generated", { groupName, reportType, periodType, metricKey: selected.metricKey, isFallback: selected.isFallback });
+
+    return { caption, imageBuffer, healthScore, confidenceScore, selectedMetric: selected, comparison };
+}
+
+module.exports = { generateGroupReport, generateCompactSummary, SOCIAL_REPORT_TYPES };

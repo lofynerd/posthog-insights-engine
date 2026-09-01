@@ -192,6 +192,124 @@ describe("AnalysisService", () => {
         });
     });
 
+    describe("generateMetricCaption", () => {
+        it("uses hedged-language instructions when confidence is low", async () => {
+            const post = jest.fn().mockResolvedValue({ data: { choices: [{ message: { content: "Caption text." } }] } });
+            const service = buildService(post);
+
+            await service.generateMetricCaption({
+                audience: "marketing",
+                metricLabel: "Bounce Rate Trend",
+                changePct: 12,
+                isFallback: false,
+                metrics: { engagement: { bounceRate: 0.5 } },
+                confidenceScore: 10,
+                periodLabel: "This Week",
+                brandName: "Tomasi",
+            });
+
+            const systemPrompt = post.mock.calls[0][1].messages[0].content;
+            expect(systemPrompt).toContain("Confidence is LOW");
+            expect(systemPrompt).toContain("do NOT issue confident directives");
+        });
+
+        it("allows direct language when confidence is high", async () => {
+            const post = jest.fn().mockResolvedValue({ data: { choices: [{ message: { content: "Caption text." } }] } });
+            const service = buildService(post);
+
+            await service.generateMetricCaption({
+                audience: "board",
+                metricLabel: "Revenue Over Time",
+                changePct: 30,
+                isFallback: false,
+                metrics: {},
+                confidenceScore: 90,
+                periodLabel: "This Month",
+                brandName: "Tomasi",
+            });
+
+            const systemPrompt = post.mock.calls[0][1].messages[0].content;
+            expect(systemPrompt).toContain("Confidence is HIGH");
+        });
+
+        it("frames a fallback pick as a steady baseline, not a change", async () => {
+            const post = jest.fn().mockResolvedValue({ data: { choices: [{ message: { content: "Caption text." } }] } });
+            const service = buildService(post);
+
+            await service.generateMetricCaption({
+                audience: "development",
+                metricLabel: "Core Web Vitals (LCP)",
+                changePct: null,
+                isFallback: true,
+                metrics: {},
+                confidenceScore: 50,
+                periodLabel: "This Week",
+                brandName: "Tomasi",
+            });
+
+            const systemPrompt = post.mock.calls[0][1].messages[0].content;
+            expect(systemPrompt).toContain("Nothing moved meaningfully");
+            expect(systemPrompt).not.toContain("changed null%");
+        });
+
+        it("includes the % change and instructs cross-referencing other metrics when not a fallback", async () => {
+            const post = jest.fn().mockResolvedValue({ data: { choices: [{ message: { content: "Caption text." } }] } });
+            const service = buildService(post);
+
+            await service.generateMetricCaption({
+                audience: "marketing",
+                metricLabel: "Website Unique Users",
+                changePct: -35.5,
+                isFallback: false,
+                metrics: { acquisition: { uniqueVisitors: 23 } },
+                confidenceScore: 40,
+                periodLabel: "This Week",
+                brandName: "Tomasi",
+            });
+
+            const systemPrompt = post.mock.calls[0][1].messages[0].content;
+            expect(systemPrompt).toContain("-35.5%");
+            expect(systemPrompt).toContain("cross-referencing the OTHER metrics");
+        });
+
+        it("tells the AI not to describe the chart's visual appearance", async () => {
+            const post = jest.fn().mockResolvedValue({ data: { choices: [{ message: { content: "Caption text." } }] } });
+            const service = buildService(post);
+
+            await service.generateMetricCaption({
+                audience: "pr",
+                metricLabel: "Growth Accounting",
+                changePct: 8,
+                isFallback: false,
+                metrics: {},
+                confidenceScore: 60,
+                periodLabel: "This Month",
+                brandName: "Tomasi",
+            });
+
+            const systemPrompt = post.mock.calls[0][1].messages[0].content;
+            expect(systemPrompt).toContain("do not describe");
+        });
+
+        it("returns the generated caption text", async () => {
+            const post = jest.fn().mockResolvedValue({ data: { choices: [{ message: { content: "Traffic dipped but nothing alarming." } }] } });
+            const service = buildService(post);
+
+            const result = await service.generateMetricCaption({
+                audience: "marketing",
+                metricLabel: "Website Unique Users",
+                changePct: -10,
+                isFallback: false,
+                metrics: {},
+                confidenceScore: 50,
+                periodLabel: "This Week",
+                brandName: "Tomasi",
+            });
+
+            expect(result).toBe("Traffic dipped but nothing alarming.");
+        });
+    });
+
     describe("answerQuestion", () => {
         it("rejects an empty question", async () => {
             const service = buildService(jest.fn());

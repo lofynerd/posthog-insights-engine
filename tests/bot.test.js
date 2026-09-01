@@ -46,6 +46,7 @@ jest.mock("../src/config", () => {
 
 jest.mock("../src/insights/reportGenerator", () => ({
     generateGroupReport: jest.fn(),
+    generateCompactSummary: jest.fn(),
 }));
 
 jest.mock("../src/ai/analysis.service", () => ({
@@ -91,7 +92,7 @@ jest.mock("../src/metrics/social", () => ({
 }));
 
 const groupRegistry = require("../src/notifications/groupRegistry");
-const { generateGroupReport } = require("../src/insights/reportGenerator");
+const { generateGroupReport, generateCompactSummary } = require("../src/insights/reportGenerator");
 const analysisService = require("../src/ai/analysis.service");
 const { isRelevant, heuristicReject } = require("../src/ai/relevanceGuard");
 const { collectAll } = require("../src/insights/collector");
@@ -102,6 +103,7 @@ function buildCtx(overrides = {}) {
         chat: { id: -100123, type: "supergroup", title: "Test Group" },
         message: { text: "/latest" },
         reply: jest.fn().mockResolvedValue(undefined),
+        replyWithPhoto: jest.fn().mockResolvedValue(undefined),
         botInfo: { id: 999 },
         // Defaults to the configured admin user so existing tests for
         // commands that are now admin-restricted (/register, /board,
@@ -329,38 +331,52 @@ describe("Telegram bot commands", () => {
             await mockCommandHandlers.get("latest")(ctx);
 
             expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("isn't registered"));
-            expect(generateGroupReport).not.toHaveBeenCalled();
+            expect(generateCompactSummary).not.toHaveBeenCalled();
         });
 
-        it("generates and sends a report for a registered group", async () => {
+        it("generates and sends a photo+caption summary for a registered group", async () => {
             groupRegistry.getGroup.mockResolvedValue({ groupName: "Founder Group", reportType: "board" });
-            generateGroupReport.mockResolvedValue({ reportText: "Report body" });
+            generateCompactSummary.mockResolvedValue({ caption: "Caption body", imageBuffer: Buffer.from("png") });
             const ctx = buildCtx({ chat: { id: -300002, type: "supergroup" } });
 
             await mockCommandHandlers.get("latest")(ctx);
 
-            expect(generateGroupReport).toHaveBeenCalledWith("Founder Group", "board", "latest");
-            expect(ctx.reply).toHaveBeenCalledWith("Report body", expect.objectContaining({ parse_mode: "Markdown" }));
+            expect(generateCompactSummary).toHaveBeenCalledWith("Founder Group", "board", "latest");
+            expect(ctx.replyWithPhoto).toHaveBeenCalledWith(
+                { source: expect.any(Buffer) },
+                expect.objectContaining({ caption: "Caption body", parse_mode: "Markdown" })
+            );
+        });
+
+        it("falls back to a text reply when no chart image is available", async () => {
+            groupRegistry.getGroup.mockResolvedValue({ groupName: "Founder Group", reportType: "board" });
+            generateCompactSummary.mockResolvedValue({ caption: "Text-only caption", imageBuffer: null });
+            const ctx = buildCtx({ chat: { id: -300007, type: "supergroup" } });
+
+            await mockCommandHandlers.get("latest")(ctx);
+
+            expect(ctx.replyWithPhoto).not.toHaveBeenCalled();
+            expect(ctx.reply).toHaveBeenCalledWith("Text-only caption", expect.objectContaining({ parse_mode: "Markdown" }));
         });
 
         it("/board overrides the report type but keeps the group's own scope", async () => {
             groupRegistry.getGroup.mockResolvedValue({ groupName: "Marketing Group", reportType: "marketing" });
-            generateGroupReport.mockResolvedValue({ reportText: "Board view" });
+            generateCompactSummary.mockResolvedValue({ caption: "Board view", imageBuffer: null });
             const ctx = buildCtx({ chat: { id: -300003, type: "supergroup" }, message: { text: "/board" } });
 
             await mockCommandHandlers.get("board")(ctx);
 
-            expect(generateGroupReport).toHaveBeenCalledWith("Marketing Group", "board", "weekly");
+            expect(generateCompactSummary).toHaveBeenCalledWith("Marketing Group", "board", "weekly");
         });
 
         it("/dev requests the development report type", async () => {
             groupRegistry.getGroup.mockResolvedValue({ groupName: "PR Group", reportType: "pr" });
-            generateGroupReport.mockResolvedValue({ reportText: "Dev view" });
+            generateCompactSummary.mockResolvedValue({ caption: "Dev view", imageBuffer: null });
             const ctx = buildCtx({ chat: { id: -300004, type: "supergroup" }, message: { text: "/dev" } });
 
             await mockCommandHandlers.get("dev")(ctx);
 
-            expect(generateGroupReport).toHaveBeenCalledWith("PR Group", "development", "weekly");
+            expect(generateCompactSummary).toHaveBeenCalledWith("PR Group", "development", "weekly");
         });
 
         it("rejects a non-admin caller from viewing another audience's report (e.g. PR trying /board)", async () => {
@@ -374,12 +390,12 @@ describe("Telegram bot commands", () => {
             await mockCommandHandlers.get("board")(ctx);
 
             expect(ctx.reply).toHaveBeenCalledWith(expect.stringContaining("restricted to a single admin"));
-            expect(generateGroupReport).not.toHaveBeenCalled();
+            expect(generateCompactSummary).not.toHaveBeenCalled();
         });
 
         it("replies with a friendly error if report generation fails", async () => {
             groupRegistry.getGroup.mockResolvedValue({ groupName: "Founder Group", reportType: "board" });
-            generateGroupReport.mockRejectedValue(new Error("boom"));
+            generateCompactSummary.mockRejectedValue(new Error("boom"));
             const ctx = buildCtx({ chat: { id: -300005, type: "supergroup" } });
 
             await mockCommandHandlers.get("latest")(ctx);

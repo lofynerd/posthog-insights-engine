@@ -1,13 +1,19 @@
 const cron = require("node-cron");
 const groupRegistry = require("../notifications/groupRegistry");
-const { generateGroupReport } = require("../insights/reportGenerator");
+const { generateCompactSummary } = require("../insights/reportGenerator");
 const logger = require("../utils/logger");
-const { splitForTelegram } = require("../utils/telegramFormat");
+const { splitForTelegram, sanitizeMarkdown } = require("../utils/telegramFormat");
 
 /**
  * Send a scheduled report to every registered group for a given
  * period type. Each group's failure is isolated so one bad group
  * (e.g. a stale registration) doesn't block delivery to the others.
+ *
+ * Uses the same compact chart+caption summary as the on-demand
+ * /latest /weekly /monthly /quarterly bot commands (see
+ * reportGenerator.js's generateCompactSummary) rather than the full
+ * multi-section text report, so scheduled and on-demand reports look
+ * identical.
  *
  * @param {import("telegraf").Telegraf} bot
  * @param {string} periodType - weekly | monthly | quarterly
@@ -18,15 +24,32 @@ async function runScheduledReports(bot, periodType) {
 
     for (const group of groups) {
         try {
-            const { reportText } = await generateGroupReport(
+            const { caption, imageBuffer } = await generateCompactSummary(
                 group.groupName,
                 group.reportType,
                 periodType
             );
 
-            const header = `📊 *${periodType.toUpperCase()} REPORT* — ${group.groupName}\n${"─".repeat(24)}\n\n`;
-            const chunks = splitForTelegram(header + reportText);
+            const header = `📊 *${periodType.toUpperCase()} REPORT* — ${group.groupName}\n\n`;
+            const sanitizedCaption = sanitizeMarkdown(header + caption);
 
+            if (imageBuffer) {
+                try {
+                    await bot.telegram.sendPhoto(group.chatId, { source: imageBuffer }, {
+                        caption: sanitizedCaption,
+                        parse_mode: "Markdown",
+                    });
+                    logger.info("Scheduled report delivered", { chatId: group.chatId, periodType });
+                    continue;
+                } catch (photoError) {
+                    logger.warn("Scheduled photo delivery failed, falling back to text", {
+                        chatId: group.chatId,
+                        error: photoError.message,
+                    });
+                }
+            }
+
+            const chunks = splitForTelegram(sanitizedCaption);
             for (const chunk of chunks) {
                 try {
                     await bot.telegram.sendMessage(group.chatId, chunk, { parse_mode: "Markdown" });

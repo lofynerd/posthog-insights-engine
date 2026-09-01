@@ -195,6 +195,80 @@ class AnalysisService {
     }
 
     /**
+     * Generate a short, grounded caption for ONE specific metric that
+     * moved (or, on a quiet period, one default metric shown as-is).
+     * This is deliberately a much narrower task than generateReport():
+     * given one real number and its context, explain why it matters
+     * in a couple of sentences -- not fill out a template across every
+     * metric regardless of whether anything happened.
+     *
+     * Used for the compact /latest /weekly /monthly /quarterly
+     * summaries, sent as a Telegram photo caption alongside the real
+     * PostHog chart for this metric (see posthogExport.service.js and
+     * insightSelector.js). The deeper, full-structure report (see
+     * generateReport()) remains available via /details.
+     *
+     * @param {object} params
+     * @param {string} params.audience - board/marketing/pr/development (canonical).
+     * @param {string} params.metricLabel - Human label for the selected metric/insight (e.g. "Bounce Rate Trend").
+     * @param {number|null} params.changePct - % change vs. previous period, or null if this is a fallback/no-baseline pick.
+     * @param {boolean} params.isFallback - True if nothing moved meaningfully and a default metric is shown instead.
+     * @param {object} params.metrics - Full current-period metrics snapshot, for cross-referencing context.
+     * @param {number} params.confidenceScore - 0-100, from compare.js -- controls how hedged the caption's language must be.
+     * @param {string} params.periodLabel - e.g. "This Week".
+     * @param {string} params.brandName
+     * @returns {Promise<string>} A short caption, 2-4 sentences, Telegram-formatted.
+     */
+    async generateMetricCaption(params) {
+        const { audience, metricLabel, changePct, isFallback, metrics, confidenceScore, periodLabel, brandName } = params;
+
+        const confidenceInstruction =
+            confidenceScore < 30
+                ? "Confidence is LOW. Use hedged language ('may indicate', 'worth watching') -- do NOT issue confident directives."
+                : confidenceScore < 60
+                ? "Confidence is MODERATE. State findings plainly but avoid absolute claims."
+                : "Confidence is HIGH. You may state findings and a clear recommended action directly.";
+
+        const systemPrompt = `You are Tomasi AI, writing a short caption for a Telegram photo message.
+The photo is a real chart for "${metricLabel}", attached above this caption -- do not describe
+the chart's appearance (axes, colors, shape); the reader can already see it. Explain what it
+means and why it matters instead.
+
+Audience: ${audience} report for ${brandName}.
+${confidenceInstruction}
+
+${
+    isFallback
+        ? "Nothing moved meaningfully this period for this audience -- this metric is shown as a steady baseline reference, not because it changed. Say so plainly (e.g. 'Holding steady' / 'No notable movement'), then add ONE brief, genuinely useful observation from the surrounding data if one exists, or state there's nothing else notable this period. Do not invent urgency."
+        : `This metric changed ${changePct}% vs. the previous period. Explain the likely reason by cross-referencing the OTHER metrics provided (e.g. did traffic composition shift, did a channel change, did engagement move with it) -- reason about relationships between metrics, don't just restate the one number. If no other metric explains it, say the cause is unclear rather than guessing.`
+}
+
+STRICT RULES:
+- 2-4 sentences total. No headers, no bullet lists, no box-drawing characters, no repeated labels.
+- Never fabricate a cause not supported by the data below -- say "cause unclear" instead of guessing.
+- Telegram formatting: single *asterisks* for bold (use sparingly, at most once), no markdown headers.
+- Do not mention "confidence score" or "health score" by name -- the hedging instruction above should be reflected in your tone/word choice only.
+- Banned phrases: "it is important to note", "overall", "in conclusion", "the data suggests".`;
+
+        const userPrompt = this._fenceUntrustedJson(
+            `Write the caption for the "${metricLabel}" chart, for ${periodLabel}. Full metrics snapshot for context ` +
+                `(cross-reference other fields to explain the change, but the caption must be about "${metricLabel}" specifically):`,
+            metrics
+        );
+
+        const caption = await this.rawCompletion(
+            [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userPrompt },
+            ],
+            { maxTokens: 250, temperature: 0.4, reasoningEffort: "none" }
+        );
+
+        logger.info("AI metric caption generated successfully", { audience, metricLabel, isFallback });
+        return caption;
+    }
+
+    /**
      * Answer a free-form question about the brand's analytics. Callers
      * MUST run this through the relevance guard first
      * (src/ai/relevanceGuard.js) — this method does not itself
@@ -272,45 +346,46 @@ Analytics. Not like a chatbot.
   "Visitors increased by 12%, indicating a positive trend"
 
 REQUIRED STRUCTURE (this exact order, every section present — use "Insufficient
-data." for a section instead of skipping it):
+data." for a section instead of skipping it). Separate sections with a single
+blank line only -- never use box-drawing characters (─, ━, │, etc.) anywhere:
 
-━━━━━━━━━━━━━━━━━━━━━━
 📊 [Report Title]
 [Date] · [Reporting Period]
-━━━━━━━━━━━━━━━━━━━━━━
+
 ❤️ Health Score: [0-100]  🧠 Confidence: [0-100]
 Rating: 🟢 Excellent / 🟡 Stable / 🟠 Warning / 🔴 Critical
 (State the health/confidence score EXACTLY as given in the data — never
-recalculate or invent your own number.)
-━━━━━━━━━━━━━━━━━━━━━━
+recalculate or invent your own number. These are the ONLY two scores in this
+report -- do not invent a third score for individual insights or priorities.)
+
 📈 KPI Snapshot
 One line per KPI, no paragraphs. Format: emoji label ▲/▼percent, or a
 status emoji for non-numeric KPIs. Only the most important KPIs for this
 audience — 4 to 7 lines max.
-━━━━━━━━━━━━━━━━━━━━━━
+
 🔥 Biggest Win
 Exactly one sentence.
-━━━━━━━━━━━━━━━━━━━━━━
+
 ⚠ Biggest Risk
 Exactly one sentence.
-━━━━━━━━━━━━━━━━━━━━━━
+
 🧠 AI Insights
-Maximum 5 bullets. Each insight: an emoji + one-line Observation, then
-"Impact:" one line, then "Action:" one line. 3 lines max per insight. Assign
-each insight an Attention Score out of 100 (how urgently it deserves human
-attention) and show it as "Attention: NN/100" — this score is your judgment
-of urgency based on severity and business impact, not a metric from the data.
-━━━━━━━━━━━━━━━━━━━━━━
+Maximum 5 bullets, but fewer is better -- only include an insight if it says
+something a reader couldn't already tell from the KPI Snapshot above. Each
+insight: an emoji + one-line Observation, then "Impact:" one line, then
+"Action:" one line. 3 lines max per insight. Do not assign a numeric score to
+individual insights.
+
 🎯 Top Priorities
 Maximum 5, ranked: 🔥 Critical, 🟠 High, 🟡 Medium, 🟢 Low. One sentence each.
-━━━━━━━━━━━━━━━━━━━━━━
+
 📅 Immediate Action
 Only today's single most important action. One line.
-━━━━━━━━━━━━━━━━━━━━━━
+
 🤖 Executive Verdict
 Exactly 2-3 sentences: current situation, biggest opportunity, biggest
 threat, most important next step. Nothing else.
-━━━━━━━━━━━━━━━━━━━━━━
+
 Need more?
 ${(EXPANSION_COMMANDS_BY_AUDIENCE[definition.key] || []).join("\n")}
 

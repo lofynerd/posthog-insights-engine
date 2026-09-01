@@ -10,8 +10,15 @@ jest.mock("../src/insights/reportMemory", () => ({
 }));
 
 const mockGenerateReport = jest.fn();
+const mockGenerateMetricCaption = jest.fn();
 jest.mock("../src/ai/analysis.service", () => ({
     generateReport: (...args) => mockGenerateReport(...args),
+    generateMetricCaption: (...args) => mockGenerateMetricCaption(...args),
+}));
+
+const mockExportInsightPng = jest.fn();
+jest.mock("../src/services/posthogExport.service", () => ({
+    getInstance: jest.fn(() => ({ exportInsightPng: (...args) => mockExportInsightPng(...args) })),
 }));
 
 const mockCollectInstagram = jest.fn();
@@ -25,7 +32,7 @@ jest.mock("../src/utils/logger", () => ({
     error: jest.fn(),
 }));
 
-const { generateGroupReport, SOCIAL_REPORT_TYPES } = require("../src/insights/reportGenerator");
+const { generateGroupReport, generateCompactSummary, SOCIAL_REPORT_TYPES } = require("../src/insights/reportGenerator");
 
 describe("generateGroupReport", () => {
     beforeEach(() => {
@@ -109,5 +116,100 @@ describe("generateGroupReport", () => {
         await generateGroupReport("Marketing Group", "marketing", "weekly");
 
         expect(snapshotCurrent.social).toBeUndefined();
+    });
+});
+
+describe("generateCompactSummary", () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+        mockGetOrBuildSnapshot.mockResolvedValue({
+            current: { acquisition: { uniqueVisitors: 120, pageviews: 300 } },
+            previous: { acquisition: { uniqueVisitors: 100, pageviews: 290 } },
+            comparison: { hasBaseline: true, changes: {} },
+        });
+        mockExportInsightPng.mockResolvedValue(Buffer.from("fake-png"));
+        mockGenerateMetricCaption.mockResolvedValue("Caption text.");
+    });
+
+    it("exports the chart for the selected metric and returns it as imageBuffer", async () => {
+        const result = await generateCompactSummary("Marketing Group", "marketing", "weekly");
+
+        expect(mockExportInsightPng).toHaveBeenCalled();
+        expect(Buffer.isBuffer(result.imageBuffer)).toBe(true);
+        expect(result.imageBuffer.toString()).toBe("fake-png");
+    });
+
+    it("generates a caption via the narrow AI method, not the full report generator", async () => {
+        await generateCompactSummary("Marketing Group", "marketing", "weekly");
+
+        expect(mockGenerateMetricCaption).toHaveBeenCalled();
+        expect(mockGenerateReport).not.toHaveBeenCalled();
+    });
+
+    it("passes the selected metric's changePct and label into the caption call", async () => {
+        await generateCompactSummary("Marketing Group", "marketing", "weekly");
+
+        const [captionArgs] = mockGenerateMetricCaption.mock.calls[0];
+        expect(captionArgs.metricLabel).toBe("Website Unique Users");
+        expect(captionArgs.changePct).toBe(20);
+        expect(captionArgs.isFallback).toBe(false);
+    });
+
+    it("returns caption, healthScore, confidenceScore, and selectedMetric", async () => {
+        const result = await generateCompactSummary("Marketing Group", "marketing", "weekly");
+
+        expect(result.caption).toBe("Caption text.");
+        expect(result.healthScore).toBeDefined();
+        expect(typeof result.confidenceScore).toBe("number");
+        expect(result.selectedMetric.metricKey).toBe("uniqueVisitors");
+    });
+
+    it("falls back to imageBuffer null (text-only) when chart export fails, without throwing", async () => {
+        mockExportInsightPng.mockRejectedValue(new Error("PostHog export failed"));
+
+        const result = await generateCompactSummary("Marketing Group", "marketing", "weekly");
+
+        expect(result.imageBuffer).toBeNull();
+        expect(result.caption).toBe("Caption text."); // caption generation still proceeds
+    });
+
+    it("falls back to a minimal caption (without throwing) when AI caption generation fails", async () => {
+        mockGenerateMetricCaption.mockRejectedValue(new Error("AI request failed"));
+
+        const result = await generateCompactSummary("Marketing Group", "marketing", "weekly");
+
+        expect(result.caption).toContain("Website Unique Users");
+        expect(result.caption).toContain("20%");
+    });
+
+    it("uses a steady-baseline fallback caption (no throw) when both export and AI fail on a fallback pick", async () => {
+        mockGetOrBuildSnapshot.mockResolvedValue({
+            current: {},
+            previous: {},
+            comparison: { hasBaseline: true, changes: {} },
+        });
+        mockExportInsightPng.mockRejectedValue(new Error("export failed"));
+        mockGenerateMetricCaption.mockRejectedValue(new Error("AI failed"));
+
+        const result = await generateCompactSummary("Marketing Group", "marketing", "weekly");
+
+        expect(result.selectedMetric.isFallback).toBe(true);
+        expect(result.imageBuffer).toBeNull();
+        expect(result.caption).toContain("steady");
+    });
+
+    it("includes Instagram data for marketing/pr before selecting the metric", async () => {
+        mockCollectInstagram.mockResolvedValue({ reach: 500 });
+
+        await generateCompactSummary("Marketing Group", "marketing", "weekly");
+
+        const [captionArgs] = mockGenerateMetricCaption.mock.calls[0];
+        expect(captionArgs.metrics.social).toEqual({ reach: 500 });
+    });
+
+    it("does not fetch Instagram data for a board summary", async () => {
+        await generateCompactSummary("Board Group", "board", "weekly");
+
+        expect(mockCollectInstagram).not.toHaveBeenCalled();
     });
 });
