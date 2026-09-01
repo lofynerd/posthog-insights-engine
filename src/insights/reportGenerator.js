@@ -1,5 +1,5 @@
 const { getOrBuildSnapshot, PERIOD_DEFINITIONS } = require("./reportMemory");
-const { computeHealthScore, computeConfidenceScore } = require("../comparison/compare");
+const { computeHealthScore, computeConfidenceScore, ratingForHealthScore } = require("../comparison/compare");
 const analysisService = require("../ai/analysis.service");
 const { normalizeReportType, REPORT_TYPES } = require("../ai/reportTypes");
 const { selectInsight } = require("./insightSelector");
@@ -172,10 +172,23 @@ async function generateCompactSummary(groupName, reportType, periodType) {
             ? `${selected.label} — steady this ${periodLabel.toLowerCase()}.`
             : `${selected.label} ${selected.changePct >= 0 ? "up" : "down"} ${Math.abs(selected.changePct)}% vs. the previous period.`;
     }
+    // Note: the health/confidence indicator line is prepended below,
+    // after this fallback -- it applies to both the AI-generated and
+    // fallback caption paths equally.
+
+    // Health/confidence rating is computed deterministically (never
+    // by the AI, per this repo's own architecture rule) and prepended
+    // as one plain indicator line -- the compact summary otherwise
+    // dropped these entirely when it stopped using the old template,
+    // but they're still the one at-a-glance trust signal worth
+    // keeping alongside a chart+caption.
+    const rating = ratingForHealthScore(healthScore.score);
+    const indicatorLine = `${rating.emoji} Health ${healthScore.score}/100 · Confidence ${confidenceScore}/100`;
+    const fullCaption = `${indicatorLine}\n${caption}`;
 
     logger.info("Compact summary generated", { groupName, reportType, periodType, metricKey: selected.metricKey, isFallback: selected.isFallback });
 
-    return { caption, imageBuffer, healthScore, confidenceScore, selectedMetric: selected, comparison };
+    return { caption: fullCaption, imageBuffer, healthScore, confidenceScore, selectedMetric: selected, comparison };
 }
 
 module.exports = { generateGroupReport, generateCompactSummary, SOCIAL_REPORT_TYPES };

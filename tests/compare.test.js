@@ -3,6 +3,7 @@ const {
     compareSnapshots,
     computeHealthScore,
     computeConfidenceScore,
+    ratingForHealthScore,
 } = require("../src/comparison/compare");
 
 describe("safePercentChange", () => {
@@ -102,6 +103,28 @@ describe("computeHealthScore", () => {
         });
         expect(score).toBeGreaterThanOrEqual(0);
         expect(score).toBeLessThanOrEqual(100);
+    });
+});
+
+describe("ratingForHealthScore", () => {
+    it("returns Excellent (green) at 75+", () => {
+        expect(ratingForHealthScore(75)).toEqual({ emoji: "🟢", label: "Excellent" });
+        expect(ratingForHealthScore(100)).toEqual({ emoji: "🟢", label: "Excellent" });
+    });
+
+    it("returns Stable (yellow) from 50 to 74", () => {
+        expect(ratingForHealthScore(50)).toEqual({ emoji: "🟡", label: "Stable" });
+        expect(ratingForHealthScore(74)).toEqual({ emoji: "🟡", label: "Stable" });
+    });
+
+    it("returns Warning (orange) from 25 to 49", () => {
+        expect(ratingForHealthScore(25)).toEqual({ emoji: "🟠", label: "Warning" });
+        expect(ratingForHealthScore(49)).toEqual({ emoji: "🟠", label: "Warning" });
+    });
+
+    it("returns Critical (red) below 25", () => {
+        expect(ratingForHealthScore(24)).toEqual({ emoji: "🔴", label: "Critical" });
+        expect(ratingForHealthScore(0)).toEqual({ emoji: "🔴", label: "Critical" });
     });
 });
 

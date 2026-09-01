@@ -158,7 +158,7 @@ describe("generateCompactSummary", () => {
     it("returns caption, healthScore, confidenceScore, and selectedMetric", async () => {
         const result = await generateCompactSummary("Marketing Group", "marketing", "weekly");
 
-        expect(result.caption).toBe("Caption text.");
+        expect(result.caption).toContain("Caption text.");
         expect(result.healthScore).toBeDefined();
         expect(typeof result.confidenceScore).toBe("number");
         expect(result.selectedMetric.metricKey).toBe("uniqueVisitors");
@@ -170,7 +170,7 @@ describe("generateCompactSummary", () => {
         const result = await generateCompactSummary("Marketing Group", "marketing", "weekly");
 
         expect(result.imageBuffer).toBeNull();
-        expect(result.caption).toBe("Caption text."); // caption generation still proceeds
+        expect(result.caption).toContain("Caption text."); // caption generation still proceeds
     });
 
     it("falls back to a minimal caption (without throwing) when AI caption generation fails", async () => {
@@ -211,5 +211,21 @@ describe("generateCompactSummary", () => {
         await generateCompactSummary("Board Group", "board", "weekly");
 
         expect(mockCollectInstagram).not.toHaveBeenCalled();
+    });
+
+    it("prepends a deterministic Health/Confidence indicator line above the caption", async () => {
+        const result = await generateCompactSummary("Marketing Group", "marketing", "weekly");
+
+        const firstLine = result.caption.split("\n")[0];
+        expect(firstLine).toMatch(/Health \d+\/100 · Confidence \d+\/100/);
+        expect(firstLine).toMatch(/[🟢🟡🟠🔴]/);
+    });
+
+    it("keeps the indicator line even when AI caption generation fails", async () => {
+        mockGenerateMetricCaption.mockRejectedValue(new Error("AI request failed"));
+
+        const result = await generateCompactSummary("Marketing Group", "marketing", "weekly");
+
+        expect(result.caption.split("\n")[0]).toMatch(/Health \d+\/100/);
     });
 });

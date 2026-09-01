@@ -153,9 +153,26 @@ function computeConfidenceScore(metrics) {
     return Math.max(0, Math.min(100, score));
 }
 
+/**
+ * Map a health score (0-100) to the same 🟢/🟡/🟠/🔴 rating used
+ * throughout Tomasi AI's reports. Deterministic, app-side -- per the
+ * architecture principle that scoring/rating is never left to the
+ * AI to infer or restate, even loosely.
+ *
+ * @param {number} score - 0-100, from computeHealthScore().
+ * @returns {{emoji: string, label: string}}
+ */
+function ratingForHealthScore(score) {
+    if (score >= 75) return { emoji: "🟢", label: "Excellent" };
+    if (score >= 50) return { emoji: "🟡", label: "Stable" };
+    if (score >= 25) return { emoji: "🟠", label: "Warning" };
+    return { emoji: "🔴", label: "Critical" };
+}
+
 module.exports = {
     safePercentChange,
     compareSnapshots,
     computeHealthScore,
     computeConfidenceScore,
+    ratingForHealthScore,
 };
