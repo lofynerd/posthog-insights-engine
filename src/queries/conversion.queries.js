@@ -33,8 +33,17 @@ function assertSafeCode(code) {
 // payment.controller.js) — it only fires once Stripe confirms
 // payment, so unlike checkout_initiated it can't be inflated by
 // abandoned checkouts or double-count client-side retries.
+//
+// User-based conversion calculation: counts distinct persons at each
+// stage, not raw event counts. A user visiting 10 pages counts once
+// as a visitor; a user purchasing twice counts once as a purchaser.
 const funnelCounts = (days, offsetDays = 0) => `
 SELECT
+    uniq(person_id) AS unique_visitors,
+    uniqIf(person_id, event = '$pageview' AND properties.$pathname LIKE '/products%') AS unique_product_viewers,
+    uniqIf(person_id, event = 'product_added_to_cart') AS unique_cart_users,
+    uniqIf(person_id, event = 'checkout_initiated') AS unique_checkout_users,
+    uniqIf(person_id, event = 'order_completed') AS unique_purchasers,
     countIf(event = '$pageview') AS pageviews,
     countIf(event = '$pageview' AND properties.$pathname LIKE '/products%') AS product_views,
     countIf(event = 'product_added_to_cart') AS add_to_cart,

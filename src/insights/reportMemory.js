@@ -42,6 +42,24 @@ function todayDateKey() {
 }
 
 /**
+ * Calculate the date key for the previous period snapshot.
+ * For a given current date and period length, this determines what
+ * date key would have been used when that previous period was "current".
+ * 
+ * @param {string} currentDateKey - ISO date string (YYYY-MM-DD)
+ * @param {number} days - Period length in days
+ * @returns {string} ISO date string for previous period's snapshot
+ */
+function calculatePreviousDateKey(currentDateKey, days) {
+    const current = new Date(currentDateKey);
+    // Move back by the period length to get the date when the previous
+    // period would have been stored as "current"
+    const previous = new Date(current);
+    previous.setDate(previous.getDate() - days);
+    return previous.toISOString().split("T")[0];
+}
+
+/**
  * Get (or build) the current-period snapshot for a group, using S3
  * as a cache keyed by calendar date so re-running the same report
  * on the same day doesn't re-query PostHog unnecessarily.
@@ -57,13 +75,14 @@ async function getOrBuildSnapshot(groupName, periodType) {
     let current = await s3Snapshot.getSnapshot({ groupName, reportType: periodType, dateKey });
 
     if (current) {
-        logger.info("Loaded cached snapshot from S3", { groupName, periodType, dateKey });
+        logger.info("Loaded cached current snapshot from S3", { groupName, periodType, dateKey });
     } else {
-        logger.info("No cached snapshot found, querying PostHog", { groupName, periodType, dateKey });
+        logger.info("No cached snapshot found, querying PostHog for current period", { groupName, periodType, dateKey });
         current = await collectAll(days, 0);
 
         try {
             await s3Snapshot.putSnapshot({ groupName, reportType: periodType, dateKey, payload: current });
+            logger.info("Stored current snapshot to S3", { groupName, periodType, dateKey });
         } catch (error) {
             // Storage failing to write memory shouldn't block report
             // delivery — log and continue with an in-memory-only result.
@@ -71,14 +90,34 @@ async function getOrBuildSnapshot(groupName, periodType) {
         }
     }
 
-    // Previous period: try S3 memory first (in case a prior run
-    // already snapshotted it under yesterday's/last week's date),
-    // otherwise pull it fresh via an offset query. This is not
-    // itself cached under a "previous" key — the previous period's
-    // own daily snapshot is what future runs will hit as `current`.
+    // Previous period: Try to use the historical snapshot from S3 first.
+    // This implements true immutable snapshot-based comparison.
     let previous = null;
+    const previousDateKey = calculatePreviousDateKey(dateKey, days);
+    
     try {
-        previous = await collectAll(days, days);
+        previous = await s3Snapshot.getSnapshot({ 
+            groupName, 
+            reportType: periodType, 
+            dateKey: previousDateKey 
+        });
+        
+        if (previous) {
+            logger.info("Loaded previous period from historical snapshot", { 
+                groupName, 
+                periodType, 
+                previousDateKey 
+            });
+        } else {
+            // Historical snapshot doesn't exist - fall back to live query
+            // This happens for the first few reports before history builds up
+            logger.info("No historical snapshot found, querying PostHog for previous period", {
+                groupName,
+                periodType,
+                previousDateKey,
+            });
+            previous = await collectAll(days, days);
+        }
     } catch (error) {
         logger.warn("Failed to collect previous period for comparison", error.message);
     }

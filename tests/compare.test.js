@@ -41,14 +41,14 @@ describe("compareSnapshots", () => {
             acquisition: { uniqueVisitors: 120, pageviews: 500 },
             conversion: { conversionRate: 0.02 },
             engagement: { bounceRate: 0.3 },
-            geography: { audienceGrowthTrendPct: 10 },
+            geography: { distinctAudienceGrowthPct: 10 },
         };
         const previous = {
             collectedAt: "2026-01-01T00:00:00.000Z",
             acquisition: { uniqueVisitors: 100, pageviews: 400 },
             conversion: { conversionRate: 0.01 },
             engagement: { bounceRate: 0.4 },
-            geography: { audienceGrowthTrendPct: 5 },
+            geography: { distinctAudienceGrowthPct: 5 },
         };
 
         const result = compareSnapshots(current, previous);
@@ -59,7 +59,7 @@ describe("compareSnapshots", () => {
         expect(result.changes.pageviewsChangePct).toBe(25);
         expect(result.changes.conversionRateChangePct).toBe(100);
         expect(result.changes.bounceRateChangePct).toBe(-25);
-        expect(result.changes.audienceGrowthTrendChangePct).toBe(100);
+        expect(result.changes.distinctAudienceGrowthChangePct).toBe(100);
     });
 
     it("handles missing nested fields gracefully", () => {
@@ -79,7 +79,7 @@ describe("computeHealthScore", () => {
         const { score, notes } = computeHealthScore({
             conversion: { conversionRate: 0.03 },
             engagement: { bounceRate: 0.2 },
-            geography: { audienceGrowthTrendPct: 15 },
+            geography: { distinctAudienceGrowthPct: 15 },
         });
         expect(score).toBeGreaterThan(50);
         expect(notes).toEqual([]);
@@ -89,7 +89,7 @@ describe("computeHealthScore", () => {
         const { score, notes } = computeHealthScore({
             conversion: { conversionRate: 0.001 },
             engagement: { bounceRate: 0.7, rageClicks: 20 },
-            geography: { audienceGrowthTrendPct: -20 },
+            geography: { distinctAudienceGrowthPct: -20 },
         });
         expect(score).toBeLessThan(50);
         expect(notes.length).toBeGreaterThan(0);
@@ -99,7 +99,7 @@ describe("computeHealthScore", () => {
         const { score } = computeHealthScore({
             conversion: { conversionRate: 0 },
             engagement: { bounceRate: 0.9, rageClicks: 1000 },
-            geography: { audienceGrowthTrendPct: -90 },
+            geography: { distinctAudienceGrowthPct: -90 },
         });
         expect(score).toBeGreaterThanOrEqual(0);
         expect(score).toBeLessThanOrEqual(100);

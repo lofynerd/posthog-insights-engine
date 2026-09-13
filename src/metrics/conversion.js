@@ -15,6 +15,13 @@ function rows(result) {
  * by abandoned checkouts, and it isn't affected by ad-blockers or a
  * customer closing the tab before the client-side success page loads.
  *
+ * Conversion rates are USER-BASED: conversionRate measures the ratio
+ * of distinct users who purchased to distinct users who visited,
+ * not raw event frequencies. A user visiting 10 times counts once
+ * as a visitor; a user purchasing twice counts once as a purchaser.
+ * This matches standard e-commerce conversion rate definitions and
+ * makes the metric comparable to industry benchmarks.
+ *
  * @param {number} days - Lookback window in days.
  * @param {number} [offsetDays=0] - Shift the window into the past.
  * @returns {Promise<object>} Structured conversion metrics.
@@ -29,27 +36,51 @@ async function collect(days, offsetDays = 0) {
             posthog.runHogQL(queries.topProductsByCartValue(days, 10, offsetDays)),
         ]);
 
-    const funnelRow = rows(funnelResult)[0] || [0, 0, 0, 0, 0, 0];
-    const [pageviews, productViews, addToCart, checkoutInitiated, purchases, cartRemoved] = funnelRow;
+    const funnelRow = rows(funnelResult)[0] || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    const [
+        uniqueVisitors,
+        uniqueProductViewers,
+        uniqueCartUsers,
+        uniqueCheckoutUsers,
+        uniquePurchasers,
+        pageviews,
+        productViews,
+        addToCart,
+        checkoutInitiated,
+        purchases,
+        cartRemoved,
+    ] = funnelRow;
 
-    const conversionRate = pageviews > 0 ? Number((purchases / pageviews).toFixed(4)) : null;
+    // User-based conversion rate: distinct users who purchased / distinct users who visited
+    // This is the standard e-commerce conversion rate metric
+    const conversionRate = uniqueVisitors > 0 ? Number((uniquePurchasers / uniqueVisitors).toFixed(4)) : null;
+    
+    // Funnel stage conversion rates (user-based)
     const productViewToCartRate =
-        productViews > 0 ? Number((addToCart / productViews).toFixed(4)) : null;
+        uniqueProductViewers > 0 ? Number((uniqueCartUsers / uniqueProductViewers).toFixed(4)) : null;
     const cartToCheckoutRate =
-        addToCart > 0 ? Number((checkoutInitiated / addToCart).toFixed(4)) : null;
+        uniqueCartUsers > 0 ? Number((uniqueCheckoutUsers / uniqueCartUsers).toFixed(4)) : null;
     const checkoutToPurchaseRate =
-        checkoutInitiated > 0 ? Number((purchases / checkoutInitiated).toFixed(4)) : null;
+        uniqueCheckoutUsers > 0 ? Number((uniquePurchasers / uniqueCheckoutUsers).toFixed(4)) : null;
 
     const revenueRow = rows(revenueResult)[0] || [null, 0, null];
     const [totalRevenue, orderCount, avgOrderValue] = revenueRow;
 
     return {
+        // User-based funnel metrics (unique persons at each stage)
+        uniqueVisitors: uniqueVisitors ?? 0,
+        uniqueProductViewers: uniqueProductViewers ?? 0,
+        uniqueCartUsers: uniqueCartUsers ?? 0,
+        uniqueCheckoutUsers: uniqueCheckoutUsers ?? 0,
+        uniquePurchasers: uniquePurchasers ?? 0,
+        // Event-count metrics (preserved for volume analysis)
         pageviews: pageviews ?? 0,
         productViews: productViews ?? 0,
         addToCart: addToCart ?? 0,
         checkoutInitiated: checkoutInitiated ?? 0,
         purchases: purchases ?? 0,
         cartRemoved: cartRemoved ?? 0,
+        // User-based conversion rates
         conversionRate,
         productViewToCartRate,
         cartToCheckoutRate,

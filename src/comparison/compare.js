@@ -53,9 +53,9 @@ function compareSnapshots(current, previous) {
             current.engagement?.bounceRate,
             previous.engagement?.bounceRate
         ),
-        audienceGrowthTrendChangePct: safePercentChange(
-            current.geography?.audienceGrowthTrendPct,
-            previous.geography?.audienceGrowthTrendPct
+        distinctAudienceGrowthChangePct: safePercentChange(
+            current.geography?.distinctAudienceGrowthPct,
+            previous.geography?.distinctAudienceGrowthPct
         ),
     };
 
@@ -102,7 +102,7 @@ function computeHealthScore(metrics) {
         }
     }
 
-    const growthTrend = metrics.geography?.audienceGrowthTrendPct;
+    const growthTrend = metrics.geography?.distinctAudienceGrowthPct;
     if (typeof growthTrend === "number") {
         if (growthTrend > 10) {
             score += 15;

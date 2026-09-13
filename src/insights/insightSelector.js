@@ -105,10 +105,10 @@ const METRIC_INSIGHT_MAP = [
         audiences: ["development"],
     },
     {
-        key: "audienceGrowthTrendPct",
-        path: "geography.audienceGrowthTrendPct",
+        key: "distinctAudienceGrowth",
+        path: "geography.distinctAudienceGrowthPct",
         insightId: 7733457,
-        label: "Growth Accounting",
+        label: "Distinct Audience Growth",
         audiences: ["pr", "board"],
     },
 ];

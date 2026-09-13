@@ -5,10 +5,20 @@ const { dateRangeClause } = require("./dateRange");
  * content detection, emerging markets, referral sources).
  */
 
-const audienceGrowthByDay = (days, offsetDays = 0) => `
+// Distinct audience size for a time window (used for growth comparison)
+const distinctAudienceSize = (days, offsetDays = 0) => `
+SELECT
+    count(DISTINCT person_id) AS unique_people
+FROM events
+WHERE ${dateRangeClause(days, offsetDays)}
+    AND event = '$pageview'
+`;
+
+// Daily audience activity series (for visualization/trending, not growth calculation)
+const audienceActivityByDay = (days, offsetDays = 0) => `
 SELECT
     toDate(timestamp) AS day,
-    count(DISTINCT person_id) AS visitors
+    count(DISTINCT person_id) AS daily_active_users
 FROM events
 WHERE ${dateRangeClause(days, offsetDays)}
     AND event = '$pageview'
@@ -57,7 +67,8 @@ LIMIT ${Number.isInteger(limit) ? limit : 10}
 `;
 
 module.exports = {
-    audienceGrowthByDay,
+    distinctAudienceSize,
+    audienceActivityByDay,
     emergingCountries,
     topContentByViews,
     referralSources,

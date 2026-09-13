@@ -6,35 +6,61 @@ function rows(result) {
 }
 
 /**
- * Collect PR-focused metrics: audience growth trend, emerging markets,
+ * Collect PR-focused metrics: distinct audience growth, emerging markets,
  * top-performing content, and referral sources.
+ *
+ * Audience growth measures whether we're reaching more DISTINCT PEOPLE
+ * across two comparison periods, not daily activity volume. A person
+ * visiting every day counts once per period, not once per day.
  *
  * @param {number} days - Lookback window in days.
  * @param {number} [offsetDays=0] - Shift the window into the past.
  * @returns {Promise<object>} Structured geography/PR metrics.
  */
 async function collect(days, offsetDays = 0) {
-    const [growthResult, countriesResult, contentResult, referralResult] = await Promise.all([
-        posthog.runHogQL(queries.audienceGrowthByDay(days, offsetDays)),
+    // Split the window into two halves for growth comparison
+    const halfWindow = Math.floor(days / 2);
+    
+    const [
+        firstHalfResult,
+        secondHalfResult,
+        activitySeriesResult,
+        countriesResult,
+        contentResult,
+        referralResult,
+    ] = await Promise.all([
+        // First half: distinct audience
+        posthog.runHogQL(queries.distinctAudienceSize(halfWindow, offsetDays + halfWindow)),
+        // Second half: distinct audience
+        posthog.runHogQL(queries.distinctAudienceSize(halfWindow, offsetDays)),
+        // Daily activity series for visualization
+        posthog.runHogQL(queries.audienceActivityByDay(days, offsetDays)),
         posthog.runHogQL(queries.emergingCountries(days, 10, offsetDays)),
         posthog.runHogQL(queries.topContentByViews(days, 10, offsetDays)),
         posthog.runHogQL(queries.referralSources(days, 10, offsetDays)),
     ]);
 
-    const growthSeries = rows(growthResult).map(([day, visitors]) => ({ day, visitors }));
-    const firstHalf = growthSeries.slice(0, Math.floor(growthSeries.length / 2));
-    const secondHalf = growthSeries.slice(Math.floor(growthSeries.length / 2));
-    const sum = (arr) => arr.reduce((acc, item) => acc + (item.visitors || 0), 0);
-    const firstHalfTotal = sum(firstHalf);
-    const secondHalfTotal = sum(secondHalf);
-    const growthTrendPct =
-        firstHalfTotal > 0
-            ? Number((((secondHalfTotal - firstHalfTotal) / firstHalfTotal) * 100).toFixed(1))
+    const firstHalfAudience = rows(firstHalfResult)[0]?.[0] || 0;
+    const secondHalfAudience = rows(secondHalfResult)[0]?.[0] || 0;
+    
+    // Calculate distinct person growth percentage
+    const distinctAudienceGrowthPct =
+        firstHalfAudience > 0
+            ? Number((((secondHalfAudience - firstHalfAudience) / firstHalfAudience) * 100).toFixed(1))
             : null;
 
+    const activitySeries = rows(activitySeriesResult).map(([day, users]) => ({ 
+        day, 
+        dailyActiveUsers: users 
+    }));
+
     return {
-        audienceGrowthSeries: growthSeries,
-        audienceGrowthTrendPct: growthTrendPct,
+        // Distinct person growth metric (primary PR/marketing growth indicator)
+        distinctAudienceGrowthPct,
+        firstHalfDistinctAudience: firstHalfAudience,
+        secondHalfDistinctAudience: secondHalfAudience,
+        // Daily activity series (for visualization/trending)
+        dailyActivitySeries: activitySeries,
         topCountries: rows(countriesResult).map(([country, visitors]) => ({ country, visitors })),
         topContent: rows(contentResult).map(([path, views, uniqueViewers]) => ({
             path,
