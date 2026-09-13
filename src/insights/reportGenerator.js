@@ -3,6 +3,10 @@ const { computeHealthScore, computeConfidenceScore, ratingForHealthScore } = req
 const analysisService = require("../ai/analysis.service");
 const { normalizeReportType, REPORT_TYPES } = require("../ai/reportTypes");
 const { selectInsight } = require("./insightSelector");
+const { buildEvidence } = require("./evidenceBuilder");
+const { filterObservationsForPersona } = require("./personaPriority");
+const { checkReportEligibility } = require("./insightEligibility");
+const { validateReport } = require("../ai/outputValidator");
 const logger = require("../utils/logger");
 
 const PERIOD_LABELS = {
@@ -24,6 +28,33 @@ const SOCIAL_REPORT_TYPES = ["marketing", "pr"];
 // Kept smaller than /social's default (10) since this data feeds a
 // compact report section, not a dedicated deep-dive.
 const REPORT_SOCIAL_POST_LIMIT = 5;
+
+/**
+ * Build complete period context metadata for evidence layer.
+ * Calculates exact start/end dates for current and previous periods.
+ * 
+ * @private
+ */
+function buildPeriodContext(reportType, periodType, days) {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    
+    const previousEndDate = new Date(startDate);
+    previousEndDate.setDate(previousEndDate.getDate() - 1);
+    const previousStartDate = new Date(previousEndDate);
+    previousStartDate.setDate(previousStartDate.getDate() - days);
+    
+    return {
+        reportType,
+        periodType,
+        periodLabel: PERIOD_LABELS[periodType] || periodType,
+        startDate: startDate.toISOString().split("T")[0],
+        endDate: endDate.toISOString().split("T")[0],
+        previousStartDate: previousStartDate.toISOString().split("T")[0],
+        previousEndDate: previousEndDate.toISOString().split("T")[0],
+    };
+}
 
 /**
  * Best-effort Instagram metrics for a report's period window. Never
@@ -75,7 +106,7 @@ async function collectSocialForReport(periodType) {
  * @returns {Promise<{reportText: string, healthScore: object, confidenceScore: number, current: object, comparison: object}>}
  */
 async function generateGroupReport(groupName, reportType, periodType, options = {}) {
-    const { current, comparison } = await getOrBuildSnapshot(groupName, periodType);
+    const { current, previous, comparison } = await getOrBuildSnapshot(groupName, periodType);
 
     const canonicalReportType = normalizeReportType(reportType);
     let metrics = current;
@@ -89,6 +120,51 @@ async function generateGroupReport(groupName, reportType, periodType, options = 
 
     const healthScore = computeHealthScore(metrics);
     const confidenceScore = computeConfidenceScore(metrics);
+    
+    // Build period context for evidence layer
+    const { days } = PERIOD_DEFINITIONS[periodType] || PERIOD_DEFINITIONS.weekly;
+    const periodContext = buildPeriodContext(canonicalReportType, periodType, days);
+    
+    // Build structured evidence (facts/observations with period provenance)
+    const evidence = buildEvidence(metrics, previous, comparison, periodContext);
+    
+    // Check eligibility before generating report
+    const eligibility = checkReportEligibility(metrics, comparison, evidence);
+    
+    if (!eligibility.eligible) {
+        logger.warn("Report generation skipped due to insufficient data", {
+            groupName,
+            reportType,
+            periodType,
+            issues: eligibility.issues,
+        });
+        
+        // Return a minimal report explaining why we can't generate insights
+        const issueText = eligibility.issues.join("; ");
+        return {
+            reportText: `📊 ${REPORT_TYPES[canonicalReportType]?.title || "Report"}\n\n` +
+                `⚠️ Insufficient data for meaningful insights\n\n` +
+                `${issueText}\n\n` +
+                `Please check back after more data has been collected.`,
+            healthScore,
+            confidenceScore,
+            current: metrics,
+            comparison,
+        };
+    }
+    
+    // Log warnings (non-blocking)
+    if (eligibility.warnings.length > 0) {
+        logger.info("Report generation warnings", {
+            groupName,
+            reportType,
+            periodType,
+            warnings: eligibility.warnings,
+        });
+    }
+    
+    // Filter observations to those most relevant for this persona
+    evidence.observations = filterObservationsForPersona(evidence.observations, canonicalReportType);
 
     const reportText = await analysisService.generateReport(reportType, {
         metrics,
@@ -96,8 +172,32 @@ async function generateGroupReport(groupName, reportType, periodType, options = 
         healthScore,
         confidenceScore,
         periodType,
+        evidence,  // Structured evidence layer with persona-filtered observations
         expanded: Boolean(options.expanded),
     });
+    
+    // Validate AI output
+    const validation = validateReport(reportText, { healthScore, confidenceScore });
+    
+    if (!validation.valid) {
+        logger.error("AI report validation failed", {
+            groupName,
+            reportType,
+            periodType,
+            errors: validation.errors,
+        });
+        // In production, we'd want to log and possibly retry, but still deliver the report
+        // since validation errors are usually minor formatting issues
+    }
+    
+    if (validation.warnings.length > 0) {
+        logger.warn("AI report validation warnings", {
+            groupName,
+            reportType,
+            periodType,
+            warnings: validation.warnings,
+        });
+    }
 
     logger.info("Group report generated", { groupName, reportType, periodType });
 

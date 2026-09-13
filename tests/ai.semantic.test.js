@@ -107,7 +107,7 @@ describe("AI Semantic Structure", () => {
 
         // Verify anti-fabrication rules
         expect(systemPrompt).toContain("Never fabricate data, numbers, or causes");
-        expect(systemPrompt).toContain("FACT must be directly measurable from the provided metrics");
+        expect(systemPrompt).toContain("FACT must come from evidence.facts or evidence.observations");
         expect(systemPrompt).toContain("never invent numbers");
     });
 
@@ -173,5 +173,113 @@ describe("AI Semantic Structure", () => {
         // Verify AI cannot modify scores
         expect(systemPrompt).toContain("State the health/confidence score EXACTLY as given in the data");
         expect(systemPrompt).toContain("recalculate or invent");
+    });
+
+    it("prompt enforces unique visitor vs new visitor distinction", () => {
+        const service = new AnalysisService({
+            apiKey: "test-key",
+            baseUrl: "https://test.api",
+            model: "test-model",
+        });
+
+        const definition = {
+            title: "Test Report",
+            key: "test",
+            focus: ["test focus"],
+            exclude: [],
+        };
+
+        const systemPrompt = service._buildSystemPrompt(definition, { wordLimit: 500, expanded: false });
+
+        // Verify the prompt clarifies unique visitors vs new visitors
+        expect(systemPrompt).toContain('NEVER say "unique visitors increased" implies "new visitors increased"');
+        expect(systemPrompt).toContain("Unique visitors = distinct people observed this period");
+        expect(systemPrompt).toContain("New visitors = people who appeared for the first time");
+    });
+
+    it("prompt requires evidence-based mobile recommendations", () => {
+        const service = new AnalysisService({
+            apiKey: "test-key",
+            baseUrl: "https://test.api",
+            model: "test-model",
+        });
+
+        const definition = {
+            title: "Test Report",
+            key: "test",
+            focus: ["test focus"],
+            exclude: [],
+        };
+
+        const systemPrompt = service._buildSystemPrompt(definition, { wordLimit: 500, expanded: false });
+
+        // Verify the prompt requires evidence before claiming mobile UX issues
+        expect(systemPrompt).toContain('Do NOT say "mobile UX is poor" just because mobile traffic exists');
+        expect(systemPrompt).toContain("mobile-specific problems");
+    });
+
+    it("prompt allows insufficient evidence conclusions", () => {
+        const service = new AnalysisService({
+            apiKey: "test-key",
+            baseUrl: "https://test.api",
+            model: "test-model",
+        });
+
+        const definition = {
+            title: "Test Report",
+            key: "test",
+            focus: ["test focus"],
+            exclude: [],
+        };
+
+        const systemPrompt = service._buildSystemPrompt(definition, { wordLimit: 500, expanded: false });
+
+        // Verify the prompt allows saying "insufficient evidence"
+        expect(systemPrompt).toContain('"Insufficient evidence to determine the cause"');
+        expect(systemPrompt).toContain("Do NOT force an explanation");
+    });
+
+    it("prompt enforces period consistency", () => {
+        const service = new AnalysisService({
+            apiKey: "test-key",
+            baseUrl: "https://test.api",
+            model: "test-model",
+        });
+
+        const definition = {
+            title: "Test Report",
+            key: "test",
+            focus: ["test focus"],
+            exclude: [],
+        };
+
+        const systemPrompt = service._buildSystemPrompt(definition, { wordLimit: 500, expanded: false });
+
+        // Verify the prompt enforces period consistency
+        expect(systemPrompt).toContain('NEVER say "this week" in a quarterly report');
+        expect(systemPrompt).toContain("period labels provided in the context");
+    });
+
+    it("prompt includes evidence strength guidance", () => {
+        const service = new AnalysisService({
+            apiKey: "test-key",
+            baseUrl: "https://test.api",
+            model: "test-model",
+        });
+
+        const definition = {
+            title: "Test Report",
+            key: "test",
+            focus: ["test focus"],
+            exclude: [],
+        };
+
+        const systemPrompt = service._buildSystemPrompt(definition, { wordLimit: 500, expanded: false });
+
+        // Verify the prompt includes evidence strength context
+        expect(systemPrompt).toContain("evidenceStrength");
+        expect(systemPrompt).toContain("INSUFFICIENT");
+        expect(systemPrompt).toContain("Weak evidence");
+        expect(systemPrompt).toContain("Strong evidence");
     });
 });
