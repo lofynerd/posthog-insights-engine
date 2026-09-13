@@ -10,18 +10,30 @@ const logger = require("./utils/logger");
 /**
  * Legacy single-chat pipeline.
  *
+ * STATUS: MAINTAINED - This pipeline remains functional and is intentionally
+ * preserved as a simpler alternative to the full bot infrastructure.
+ *
+ * USE CASES:
+ * - Simple one-shot scheduled jobs (cron/Lambda) with no group registry
+ * - Single-chat deployments that don't need multi-group support
+ * - Stateless execution environments
+ * - Testing/debugging without bot infrastructure
+ *
+ * IMPORTANT: This pipeline does NOT use S3-backed memory or historical
+ * snapshots. Each execution queries PostHog directly with no caching.
+ * For production multi-group deployments with memory and comparison,
+ * use src/bot.js + src/insights/reportGenerator.js instead.
+ *
  * Orchestrates the full flow for the original single-group setup:
  * 1. Collect PostHog insights (metrics layer)
  * 2. Compute deterministic health/confidence scores
  * 3. Send to AI for report generation
  * 4. Forward the AI report to Telegram
  *
- * For multi-group deployments (bot added to several groups, each
- * with its own report type and S3-backed memory), use
- * src/bot.js + src/insights/reportGenerator.js instead. This script
- * remains as a simple one-shot entrypoint suited to a single
- * scheduled job (e.g. cron or a Lambda invocation) with no group
- * registry involved.
+ * METRICS: This pipeline uses the same corrected metrics as the bot:
+ * - User-based conversion rate (unique purchasers / unique visitors)
+ * - Distinct audience growth (not daily activity volume)
+ * - Historical comparison via offset queries (not S3 snapshots)
  */
 async function run(options = {}) {
     const { audience = "founder", chatId } = options;

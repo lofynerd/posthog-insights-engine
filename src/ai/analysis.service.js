@@ -245,10 +245,15 @@ ${
 
 STRICT RULES:
 - 2-4 sentences total. No headers, no bullet lists, no box-drawing characters, no repeated labels.
-- Never fabricate a cause not supported by the data below -- say "cause unclear" instead of guessing.
-- Telegram formatting: single *asterisks* for bold (use sparingly, at most once), no markdown headers.
-- Do not mention "confidence score" or "health score" by name -- the hedging instruction above should be reflected in your tone/word choice only.
-- Banned phrases: "it is important to note", "overall", "in conclusion", "the data suggests".`;
+- Structure your response using semantic precision:
+  * Start with FACT (what the data shows)
+  * Follow with OBSERVATION (what pattern this reveals)
+  * If applicable, add POSSIBLE EXPLANATION (hedged with "may", "could")
+  * End with RECOMMENDATION (if confidence allows)
+- Never fabricate a cause not supported by the data below -- say "cause unclear" instead of guessing
+- Telegram formatting: single *asterisks* for bold (use sparingly, at most once), no markdown headers
+- Do not mention "confidence score" or "health score" by name -- the hedging instruction above should be reflected in your tone/word choice only
+- Banned phrases: "it is important to note", "overall", "in conclusion", "the data suggests"`;
 
         const userPrompt = this._fenceUntrustedJson(
             `Write the caption for the "${metricLabel}" chart, for ${periodLabel}. Full metrics snapshot for context ` +
@@ -371,10 +376,20 @@ Exactly one sentence.
 
 🧠 AI Insights
 Maximum 5 bullets, but fewer is better -- only include an insight if it says
-something a reader couldn't already tell from the KPI Snapshot above. Each
-insight: an emoji + one-line Observation, then "Impact:" one line, then
-"Action:" one line. 3 lines max per insight. Do not assign a numeric score to
-individual insights.
+something a reader couldn't already tell from the KPI Snapshot above.
+
+Each insight MUST use this exact structure (4 lines per insight):
+• [emoji] FACT: [one measurable statement from the data]
+  OBSERVATION: [pattern or relationship this reveals]
+  POSSIBLE EXPLANATION: [hedged hypothesis - use "may", "could", "possibly"]
+  RECOMMENDATION: [specific action to take]
+
+CRITICAL SEMANTIC RULES:
+- FACT must be directly measurable from the provided metrics (never invent numbers)
+- OBSERVATION describes what the fact means in business context
+- POSSIBLE EXPLANATION must be clearly hedged ("may indicate", "could be due to", "possibly") - NEVER state a cause as certain unless directly proven by data
+- RECOMMENDATION gives a concrete next step
+- Do not assign numeric scores to individual insights
 
 🎯 Top Priorities
 Maximum 5, ranked: 🔥 Critical, 🟠 High, 🟡 Medium, 🟢 Low. One sentence each.
@@ -397,9 +412,13 @@ DATA INTEGRITY (never violate):
 - Never fabricate data, numbers, or causes not present in the provided data
 - If data is missing for something the structure asks for, write
   "Insufficient data." for that line instead of guessing
-- If a cause isn't certain from the data, say "Possible causes include..."
-  rather than stating it as fact — clearly distinguish facts, assumptions,
-  and recommendations
+- FACT vs EXPLANATION distinction is mandatory:
+  * FACT: "Bounce rate increased 15%" ✓
+  * WRONG: "Bounce rate increased because landing pages are poor" ✗
+  * RIGHT: "Bounce rate increased 15%" (FACT) → "may indicate landing-page mismatch" (POSSIBLE EXPLANATION)
+- Use hedging language for POSSIBLE EXPLANATION: "may", "could", "possibly", "suggests"
+- Never state causation as fact unless directly proven by the data
+- RECOMMENDATION can be directive, but must be grounded in the facts/observations above it
 
 TELEGRAM FORMATTING:
 - Single *asterisks* for bold, never **double**

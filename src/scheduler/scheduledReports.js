@@ -70,10 +70,18 @@ async function runScheduledReports(bot, periodType) {
 }
 
 /**
- * Register cron jobs for weekly and monthly automatic reports.
- * Quarterly is intentionally left to on-demand /quarterly only,
- * since a 90-day cadence rarely aligns usefully with a fixed cron
- * schedule — add one here later if a fixed quarterly cadence is wanted.
+ * Register cron jobs for weekly, monthly, and quarterly automatic reports.
+ * 
+ * Weekly: Every Monday at 08:00 server time
+ * Monthly: 1st of every month at 08:00 server time  
+ * Quarterly: 1st of January, April, July, October at 08:00 server time
+ * 
+ * Daily automatic reports are intentionally NOT included per product decision.
+ * 
+ * Quarterly uses calendar quarters (Q1=Jan, Q2=Apr, Q3=Jul, Q4=Oct) rather
+ * than rolling 90-day windows. This aligns with business reporting cycles
+ * even though the underlying report generator uses a rolling 90-day window
+ * when calculating the quarterly period.
  *
  * @param {import("telegraf").Telegraf} bot
  * @returns {Array<import("node-cron").ScheduledTask>} scheduled tasks, for cleanup on shutdown.
@@ -95,6 +103,15 @@ function startScheduler(bot) {
         cron.schedule("0 8 1 * *", () => {
             runScheduledReports(bot, "monthly").catch((error) =>
                 logger.error("Monthly scheduler run failed", error.message)
+            );
+        })
+    );
+
+    // 1st of January, April, July, October at 08:00 server time (calendar quarters).
+    tasks.push(
+        cron.schedule("0 8 1 1,4,7,10 *", () => {
+            runScheduledReports(bot, "quarterly").catch((error) =>
+                logger.error("Quarterly scheduler run failed", error.message)
             );
         })
     );
